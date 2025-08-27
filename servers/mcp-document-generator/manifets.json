@@ -1,0 +1,21 @@
+{
+  "id": "document-generator",
+  "name": "Document Generator",
+  "description": "MCP server for creating downloadable docx and pdf documents.",
+  "author": "intelligencebox",
+  "version": "1.0.0",
+  "icon": "📄",
+  "category": "business",
+  "tags": ["document", "docx", "doc", "pdf", "text", "documents"],
+  "dockerImage": "",
+  "entrypoint": "python -m /app/src document_generator.py",
+  "requirements": {
+    "minMemory": "256Mi",
+    "minCpu": 0.2,
+    "capabilities": ["network"]
+  },
+  "features": [
+    "Generation of docx files",
+    "Generation of pdf files"
+  ]
+}

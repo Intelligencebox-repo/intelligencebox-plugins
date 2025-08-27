@@ -1,7 +1,7 @@
 from .server import serve
 
 def main():
-    """MCP DOCX Generator Server"""
+    """MCP Document Generator Server"""
     import asyncio
     asyncio.run(serve())
 

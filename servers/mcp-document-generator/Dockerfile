@@ -9,10 +9,7 @@ RUN apt-get update && apt-get install -y pandoc
 WORKDIR /app
 
 # 4. Copia e Installazione delle Dipendenze Python
-# Copia il file requirements.txt
 COPY requirements.txt ./
-
-# Installa le dipendenze usando pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. Copia del Codice Sorgente
@@ -21,5 +18,10 @@ COPY ./src ./src
 # 6. Configurazione dell'Ambiente Python
 ENV PYTHONPATH="/app/src"
 
+
+# Esponi la porta 8000 per il server web
+EXPOSE 8000
+
+
 # 7. Comando di Avvio
-CMD ["python", "-m", "docx_generator"]
+CMD ["python", "-m", "document_generator"]
