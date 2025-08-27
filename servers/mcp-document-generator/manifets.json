@@ -5,10 +5,11 @@
   "author": "intelligencebox",
   "version": "1.0.0",
   "icon": "📄",
-  "category": "business",
-  "tags": ["document", "docx", "doc", "pdf", "text", "documents"],
-  "dockerImage": "",
-  "entrypoint": "python -m /app/src document_generator.py",
+  "category": "productivity",
+  "tags": ["document", "docx", "doc", "pdf", "text", "report"],
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-document-generator:latest",
+  "entrypoint": ["python", "-m", "document_generator"],
+  "configSchema": {},
   "requirements": {
     "minMemory": "256Mi",
     "minCpu": 0.2,
@@ -16,6 +17,7 @@
   },
   "features": [
     "Generation of docx files",
-    "Generation of pdf files"
+    "Generation of pdf files",
+    "File service via web link for easy access to generated documents"
   ]
 }
