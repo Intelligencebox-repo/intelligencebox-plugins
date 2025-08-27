@@ -23,13 +23,8 @@ import uvicorn
 
 
 # --- INIZIALIZZAZIONE DI FASTAPI ---
-# Creiamo un'istanza dell'applicazione FastAPI
 app = FastAPI()
 
-# "Montiamo" la cartella 'output' come una cartella di file statici.
-# Questo dice a FastAPI: "Qualsiasi richiesta all'URL '/files/...' deve cercare
-# un file corrispondente nella cartella fisica './output'".
-# Il percorso 'output' è relativo a dove viene eseguito lo script.
 os.makedirs("output", exist_ok=True)
 app.mount("/files", StaticFiles(directory="output"), name="files")
 
@@ -37,8 +32,8 @@ app.mount("/files", StaticFiles(directory="output"), name="files")
 # Useremo '0.0.0.0' per renderlo accessibile dall'esterno del container Docker.
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 8000
-BASE_URL = f"http://localhost:{SERVER_PORT}" # Useremo localhost per i test dal PC
-
+HOSTNAME = os.getenv("PUBLIC_HOSTNAME", "localhost")
+BASE_URL = f"http://{HOSTNAME}:{SERVER_PORT}"
 
 # --- Definizione dei Parametri per gli Strumenti ---
 class CreateDocxParams(BaseModel):
@@ -94,12 +89,11 @@ def create_pdf_file(filename: str, text_content: str) -> str:
 async def serve() -> None:
     """Avvia il server MCP per il generatore di documenti."""
 
-    # --- NUOVA PARTE: Avvio del server web in background ---
+    # --- Avvio del server web in background ---
     config = uvicorn.Config(app, host=SERVER_HOST, port=SERVER_PORT, log_level="info")
     uvicorn_server = uvicorn.Server(config)
-    # Avviamo il server uvicorn come un'attività in background
+
     asyncio.create_task(uvicorn_server.serve())
-    # --- FINE NUOVA PARTE ---
 
 
     server = Server("document-generator")
@@ -136,7 +130,6 @@ async def serve() -> None:
             except ValueError as e:
                 raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Parametri invalidi per create_pdf: {e}"))
         else:
-            # Questo non dovrebbe mai succedere se il client è corretto
             raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Strumento '{name}' non conosciuto."))
 
         return [TextContent(type="text", text=result_message)]    
