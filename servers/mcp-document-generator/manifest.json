@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "icon": "📄",
   "category": "productivity",
-  "tags": ["document", "docx", "doc", "pdf", "text", "report"],
+  "tags": ["document", "docx", "pdf", "doc", "text", "report"],
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-document-generator:latest",
   "entrypoint": ["python", "-m", "document_generator"],
   "configSchema": {},
