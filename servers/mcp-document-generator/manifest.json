@@ -10,6 +10,11 @@
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-document-generator:latest",
   "entrypoint": ["python", "-m", "document_generator"],
   "configSchema": {},
+  "needsFileAccess": true,
+  "volumeMounts": {
+    "output": "/output",
+    "dataai": "/dataai"
+  },
   "requirements": {
     "minMemory": "256Mi",
     "minCpu": 0.2,

@@ -34,15 +34,17 @@ export async function GET(request: NextRequest) {
     
     const mcps = await collection.find(filter).toArray();
     
-    const mcpsWithEntrypoint = mcps.map(mcp => ({
+    const mcpsWithAllFields = mcps.map(mcp => ({
       ...mcp,
-      entrypoint: mcp.entrypoint
+      entrypoint: mcp.entrypoint,
+      needsFileAccess: mcp.needsFileAccess || false,
+      volumeMounts: mcp.volumeMounts || {}
     }));
     
     return NextResponse.json({
       success: true,
-      mcps: mcpsWithEntrypoint,
-      count: mcpsWithEntrypoint.length
+      mcps: mcpsWithAllFields,
+      count: mcpsWithAllFields.length
     });
   } catch (error: any) {
     return NextResponse.json(

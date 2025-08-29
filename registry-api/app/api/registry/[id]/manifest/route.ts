@@ -39,7 +39,9 @@ export async function GET(
       icon: mcp.icon,
       category: mcp.category,
       tags: mcp.tags,
-      documentationUrl: mcp.documentationUrl
+      documentationUrl: mcp.documentationUrl,
+      needsFileAccess: mcp.needsFileAccess || false,
+      volumeMounts: mcp.volumeMounts || {}
     };
     
     return NextResponse.json({
