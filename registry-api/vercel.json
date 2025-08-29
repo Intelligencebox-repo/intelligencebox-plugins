@@ -1,6 +1,6 @@
 {
-  "buildCommand": "cd registry-api && npm run build",
-  "outputDirectory": "registry-api/.next",
-  "installCommand": "cd registry-api && npm install",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
   "framework": "nextjs"
 }
