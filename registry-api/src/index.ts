@@ -53,10 +53,16 @@ app.get('/api/registry', async (req, res) => {
     
     const mcps = await collection.find(filter).toArray();
     
+    // Ensure each MCP has entrypoint field
+    const mcpsWithEntrypoint = mcps.map(mcp => ({
+      ...mcp,
+      entrypoint: mcp.entrypoint // Include entrypoint from database (can be string or array)
+    }));
+    
     res.json({
       success: true,
-      mcps,
-      count: mcps.length
+      mcps: mcpsWithEntrypoint,
+      count: mcpsWithEntrypoint.length
     });
   } catch (error: any) {
     res.status(500).json({
