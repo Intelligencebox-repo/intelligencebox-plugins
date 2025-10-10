@@ -7,7 +7,7 @@
   "icon": "📧",
   "category": "productivity",
   "tags": ["gmail", "email", "google", "mail", "send", "read"],
-  "dockerImage": "",
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:latest",
   "entrypoint": ["python", "-m", "gmail_server"],
   "configSchema": {
     "GMAIL_CLIENT_ID": {
