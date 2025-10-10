@@ -16,7 +16,7 @@
       "required": true
     },
     "GMAIL_CLIENT_SECRET": {
-      "type": "secret",
+      "type": "string",
       "description": "Il Client Secret ottenuto dalla tua Google Cloud Console.",
       "required": true
     }
