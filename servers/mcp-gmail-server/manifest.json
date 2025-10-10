@@ -1,0 +1,40 @@
+{
+  "id": "gmail-server",
+  "name": "Gmail Server",
+  "description": "MCP server for reading, sending, and managing emails via Google APIs, requiring the user's personal credentials.",
+  "author": "intelligencebox",
+  "version": "1.0.0",
+  "icon": "📧",
+  "category": "productivity",
+  "tags": ["gmail", "email", "google", "mail", "send", "read"],
+  "dockerImage": "",
+  "entrypoint": ["python", "-m", "gmail_server"],
+  "configSchema": {
+    "GMAIL_CLIENT_ID": {
+      "type": "string",
+      "description": "Il Client ID ottenuto dalla tua Google Cloud Console per l'App Desktop.",
+      "required": true
+    },
+    "GMAIL_CLIENT_SECRET": {
+      "type": "secret",
+      "description": "Il Client Secret ottenuto dalla tua Google Cloud Console.",
+      "required": true
+    }
+  },
+  "needsFileAccess": true,
+  "volumeMounts": {
+    "data": "/data"
+  },
+  "requirements": {
+    "minMemory": "256Mi",
+    "minCpu": 0.2,
+    "capabilities": ["network"]
+  },
+  "features": [
+    "Send email",
+    "Search for email in inbox",
+    "Retrieve details of a specific email (sender, subject, date, ecc.)",
+    "Extract and read the body text of a specific email",
+    "Delete an email message"
+  ]
+}
