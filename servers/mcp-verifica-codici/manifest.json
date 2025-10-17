@@ -1,0 +1,31 @@
+{
+  "id": "verifica-codici",
+  "name": "Verifica Codici Documenti",
+  "description": "Un server MCP che esegue una validazione incrociata tra un elenco di documenti e i codici identificativi presenti all'interno di ogni singolo file.",
+  "author": "intelligencebox",
+  "version": "1.0.0",
+  "icon": "🔎",
+  "category": "business",
+  "tags": ["verifica codici", "validazione"],
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-verifica-codici:latest",
+  "entrypoint": ["python", "-m", "verifica_codici"],
+  "configSchema": {
+    "CHAT_URL": {
+      "type": "string",
+      "description": "L'URL per chattare con la Box.",
+      "required": false
+    }
+  },
+  "requirements": {
+    "minMemory": "256Mi",
+    "minCpu": 0.2,
+    "capabilities": ["network"]
+  },
+  "features": [
+    "Analisi di un PDF contenente un elenco di documenti.",
+    "Recupero dei singoli file PDF da verificare.",
+    "Elaborazione di immagine (cropping e pulizia) per isolare i codici.",
+    "Estrazione del testo dei codici tramite OCR.",
+    "Confronto tra codici attesi ed estratti e generazione di un'analisi finale."
+  ]
+}
