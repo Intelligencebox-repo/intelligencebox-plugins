@@ -41,7 +41,10 @@ export async function GET(
       tags: mcp.tags,
       documentationUrl: mcp.documentationUrl,
       needsFileAccess: mcp.needsFileAccess || false,
-      volumeMounts: mcp.volumeMounts || {}
+      volumeMounts: mcp.volumeMounts || {},
+      transport: mcp.transport || 'stdio',
+      port: mcp.port,
+      sseEndpoint: mcp.sseEndpoint
     };
     
     return NextResponse.json({

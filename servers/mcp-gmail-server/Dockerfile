@@ -14,5 +14,9 @@ COPY ./src ./src
 # Configurazione dell'Ambiente Python
 ENV PYTHONPATH="/app/src"
 
-# Comando di Avvio
-CMD ["python", "-m", "gmail_server"]
+# Expose port for SSE mode
+EXPOSE 8080
+
+# Comando di Avvio - usa SSE mode di default per Docker
+# Per usare stdio mode, override con: python -m gmail_server
+CMD ["python", "-m", "gmail_server.sse_server"]

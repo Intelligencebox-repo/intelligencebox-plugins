@@ -36,12 +36,12 @@ class CompleteAuthParams(BaseModel):
     code: str = Field(description="Il codice di autorizzazione ottenuto da Google dopo il consenso dell'utente.")
 
 
-# --- FUNZIONE PRINCIPALE DEL SERVER ---
-async def serve():
+# --- CREAZIONE DEL SERVER MCP ---
+def create_gmail_server() -> Server:
     """
-    Funzione principale che configura e avvia il server MCP per Gmail.
+    Crea e configura il server MCP per Gmail.
+    Questa funzione può essere riutilizzata per diversi tipi di trasporto.
     """
-    
     # --- SETUP per l'auth ---
     gmail_tool = GmailTools()
 
@@ -85,7 +85,7 @@ async def serve():
             elif name == "send-email":
                 args = SendEmailParams(**arguments)
                 result_message = await asyncio.to_thread(gmail_tool.send_email, to=args.to, subject=args.subject, body=args.body, attachment_paths=args.attachment_paths)
-            
+
             elif name == "search-emails":
                 args = SearchEmailsParams(**arguments)
                 result_message = await asyncio.to_thread(gmail_tool.search_emails, query=args.query, label=args.label, max_results=args.max_results)
@@ -97,20 +97,30 @@ async def serve():
             elif name == "get-email-body":
                 args = EmailIdParams(**arguments)
                 result_message = await asyncio.to_thread(gmail_tool.get_emails_message_body, msg_id=args.msg_id)
-            
+
             elif name == "delete-email":
                 args = EmailIdParams(**arguments)
                 result_message = await asyncio.to_thread(gmail_tool.delete_email_message, msg_id=args.msg_id)
-            
+
             else:
                 raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Tool '{name}' non definito."))
-            
+
             # Converte la risposta (che potrebbe essere un dict o altro) in una stringa per TextContent
             return [TextContent(type="text", text=str(result_message))]
 
         except Exception as e:
             # Cattura sia gli errori di validazione Pydantic che quelli della logica di business
             raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Errore durante l'esecuzione del tool '{name}': {e}"))
+
+    return server
+
+
+# --- FUNZIONE PRINCIPALE DEL SERVER (STDIO MODE) ---
+async def serve():
+    """
+    Funzione principale che configura e avvia il server MCP per Gmail in modalità stdio.
+    """
+    server = create_gmail_server()
 
     # --- AVVIO DEL SERVER IN MODALITÀ STDIO ---
     options = server.create_initialization_options()
