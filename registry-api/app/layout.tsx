@@ -1,7 +1,7 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'MCP Registry API',
+  title: 'MCP Registry API - Intelligencebox',
   description: 'Model Context Protocol Registry API',
 }
 
