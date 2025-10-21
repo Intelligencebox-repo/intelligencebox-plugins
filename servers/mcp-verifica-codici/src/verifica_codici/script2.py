@@ -58,7 +58,15 @@ async def recupera_percorso_file(nome_documento: str, collection_id: str) -> str
                         first_doc.get("source", "").split("#")[0]  # Rimuove anchor se presente
                     )
 
-                    if file_path and file_path.startswith("/"):
+                    if file_path:
+                        # Normalize path: remove /files/ prefix if present (HTTP URL → filesystem path)
+                        if file_path.startswith("/files/"):
+                            file_path = file_path.replace("/files/", "/", 1)
+
+                        # Ensure absolute path
+                        if not file_path.startswith("/"):
+                            file_path = "/" + file_path
+
                         return file_path
                     else:
                         return f"Errore: File_path non valido per '{nome_documento}': {file_path}"
