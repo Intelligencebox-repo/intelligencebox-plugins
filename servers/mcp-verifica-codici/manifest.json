@@ -15,7 +15,7 @@
       "type": "string",
       "description": "URL endpoint per RAG search dei documenti nella collection",
       "required": true,
-      "default": "http://host.docker.internal:8080/api/rag/search-documents"
+      "default": "http://host.docker.internal:8080/api/collections/query"
     }
   },
   "dockerDefaults": {
