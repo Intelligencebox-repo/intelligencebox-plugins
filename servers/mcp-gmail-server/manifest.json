@@ -7,7 +7,7 @@
   "icon": "📧",
   "category": "productivity",
   "tags": ["gmail", "email", "google", "mail", "send", "read"],
-  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:1.2.2",
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:latest",
   "transport": "sse",
   "port": 8081,
   "sseEndpoint": "/sse",
