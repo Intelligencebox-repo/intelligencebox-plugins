@@ -8,10 +8,8 @@
   "category": "productivity",
   "tags": ["gmail", "email", "google", "mail", "send", "read"],
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:latest",
-  "transport": "sse",
-  "port": 8081,
-  "sseEndpoint": "/sse",
-  "entrypoint": ["python", "-m", "gmail_server.sse_server"],
+  "transport": "stdio",
+  "entrypoint": ["python", "-m", "gmail_server"],
   "configSchema": {
     "GMAIL_CLIENT_ID": {
       "type": "string",
