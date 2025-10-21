@@ -40,11 +40,28 @@ export async function GET(
       category: mcp.category,
       tags: mcp.tags,
       documentationUrl: mcp.documentationUrl,
-      needsFileAccess: mcp.needsFileAccess || false,
-      volumeMounts: mcp.volumeMounts || {},
+
+      // NEW: Build dockerDefaults structure (supports both old and new formats)
+      dockerDefaults: mcp.dockerDefaults || {
+        containerPort: mcp.port,
+        sseEndpoint: mcp.sseEndpoint,
+        protocol: 'tcp' as const,
+        needsPortMapping: mcp.transport === 'sse',
+        defaultHostPort: mcp.port,
+        needsFileAccess: mcp.needsFileAccess || false,
+        volumeMounts: mcp.volumeMounts || {},
+        resources: mcp.dockerDefaults?.resources || {
+          memory: '512m',
+          cpus: '0.5'
+        }
+      },
+
+      // Keep legacy fields for backward compatibility
       transport: mcp.transport || 'stdio',
       port: mcp.port,
-      sseEndpoint: mcp.sseEndpoint
+      sseEndpoint: mcp.sseEndpoint,
+      needsFileAccess: mcp.needsFileAccess || false,
+      volumeMounts: mcp.volumeMounts || {}
     };
     
     return NextResponse.json({

@@ -17,6 +17,28 @@ interface MCP {
   tags?: string[];
   documentationUrl?: string;
   featured?: boolean;
+
+  // NEW: Docker configuration structure
+  dockerDefaults?: {
+    containerPort?: number;
+    sseEndpoint?: string;
+    protocol?: 'tcp' | 'udp';
+    needsPortMapping?: boolean;
+    defaultHostPort?: number;
+    needsFileAccess?: boolean;
+    volumeMounts?: Record<string, string>;
+    resources?: {
+      memory: string;
+      cpus: string;
+    };
+  };
+
+  // Legacy fields (keep for backward compatibility)
+  transport?: 'sse' | 'stdio';
+  port?: number;
+  sseEndpoint?: string;
+  needsFileAccess?: boolean;
+  volumeMounts?: Record<string, string>;
 }
 
 export default function RegistryBrowser() {
