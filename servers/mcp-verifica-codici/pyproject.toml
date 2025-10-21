@@ -20,6 +20,11 @@ dependencies = [
     "annotated-types",
     "typing_extensions",
 
+    # === DIPENDENZE PER SSE SERVER ===
+    "uvicorn",
+    "starlette",
+    "sse-starlette",
+
     # === DIPENDENZE SPECIFICHE PER QUESTO TOOL ===
     # Per l'analisi dei PDF
     "pdfplumber",

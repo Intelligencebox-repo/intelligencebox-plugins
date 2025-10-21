@@ -3,17 +3,33 @@
   "name": "Verifica Codici",
   "description": "Un server MCP che esegue una validazione incrociata tra un elenco di documenti e i codici identificativi presenti all'interno di ogni singolo file.",
   "author": "intelligencebox",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "icon": "🔎",
   "category": "business",
   "tags": ["verifica codici", "validazione"],
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-verifica-codici:latest",
-  "entrypoint": ["python", "-m", "verifica_codici"],
+  "transport": "sse",
+  "entrypoint": ["python", "-m", "verifica_codici.sse_server"],
   "configSchema": {
     "CHAT_URL": {
       "type": "string",
       "description": "L'URL per chattare con la Box.",
       "required": false
+    }
+  },
+  "dockerDefaults": {
+    "containerPort": 8080,
+    "sseEndpoint": "/sse",
+    "protocol": "tcp",
+    "needsPortMapping": true,
+    "defaultHostPort": 8080,
+    "needsFileAccess": true,
+    "volumeMounts": {
+      "data": "/data"
+    },
+    "resources": {
+      "memory": "512m",
+      "cpus": "0.5"
     }
   },
   "requirements": {

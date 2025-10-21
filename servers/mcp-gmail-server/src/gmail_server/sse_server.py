@@ -2,45 +2,55 @@
 SSE Server for Gmail MCP
 Provides HTTP/SSE transport for Docker deployments
 """
-import asyncio
 import os
 
 from starlette.applications import Starlette
 from starlette.routing import Route
-from starlette.requests import Request
 from mcp.server.sse import SseServerTransport
 import uvicorn
-from sse_starlette import EventSourceResponse
 
 from .server import create_gmail_server
 
 
-async def sse_endpoint(request: Request):
-    """SSE endpoint for MCP communication"""
-    # Create the Gmail server instance
+# Create SSE transport instance
+# The "/messages" endpoint will receive POST requests with client messages
+sse_transport = SseServerTransport("/messages")
+
+
+async def sse_endpoint(scope, receive, send):
+    """
+    SSE GET endpoint - establishes Server-Sent Events stream
+    This is called when a client connects to GET /sse
+    """
     server = create_gmail_server()
 
-    # Use the proper SSE transport from mcp library
-    from mcp.server.sse import sse_server
+    # Use the connect_sse context manager to get read/write streams
+    async with sse_transport.connect_sse(scope, receive, send) as streams:
+        read_stream, write_stream = streams
+        options = server.create_initialization_options()
 
-    # Handle the SSE connection using EventSourceResponse
-    async def event_generator():
-        async with sse_server(request) as (read_stream, write_stream):
-            options = server.create_initialization_options()
-            try:
-                await server.run(read_stream, write_stream, options)
-            except Exception as e:
-                print(f"Error in SSE handler: {e}")
-                raise
-
-    return EventSourceResponse(event_generator())
+        try:
+            # Run the MCP server with the established streams
+            await server.run(read_stream, write_stream, options)
+        except Exception as e:
+            print(f"Error in SSE handler: {e}")
+            raise
 
 
-# Create Starlette app with SSE route
+async def messages_endpoint(scope, receive, send):
+    """
+    POST /messages endpoint - receives client messages
+    This is called when the client sends messages via POST
+    """
+    await sse_transport.handle_post_message(scope, receive, send)
+
+
+# Create Starlette app with both SSE and messages routes
 app = Starlette(
     debug=False,
     routes=[
         Route("/sse", sse_endpoint, methods=["GET"]),
+        Route("/messages", messages_endpoint, methods=["POST"]),
     ],
 )
 

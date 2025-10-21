@@ -24,12 +24,13 @@ class VerificaCodiciParams(BaseModel):
     index_pdf_path: str = Field(..., description="Il percorso del file PDF che contiene l'elenco dei documenti da verificare.")
     codice_commessa: str = Field(..., description="Il codice della commessa da utilizzare per filtrare i documenti nell'elenco.")
 
-# --- Funzione Principale del Server ---
-async def serve():
+
+# --- CREAZIONE DEL SERVER MCP ---
+def create_verifica_codici_server() -> Server:
     """
-    Funzione principale che configura e avvia il server MCP per la verifica dei codici.
+    Crea e configura il server MCP per la verifica dei codici.
+    Questa funzione può essere riutilizzata per diversi tipi di trasporto.
     """
-    
     server = Server("verifica-codici")
 
     # --- REGISTRAZIONE DEL TOOL ---
@@ -110,6 +111,16 @@ async def serve():
         except Exception as e:
             # Cattura errori di validazione Pydantic o altri errori imprevisti
             raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Errore durante l'esecuzione del tool: {e}"))
+
+    return server
+
+
+# --- FUNZIONE PRINCIPALE DEL SERVER (STDIO MODE) ---
+async def serve():
+    """
+    Funzione principale che configura e avvia il server MCP per la verifica dei codici in modalità stdio.
+    """
+    server = create_verifica_codici_server()
 
     # --- AVVIO DEL SERVER IN MODALITÀ STDIO ---
     options = server.create_initialization_options()
