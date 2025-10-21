@@ -3,22 +3,14 @@
   "name": "Gmail Server",
   "description": "MCP server for reading, sending, and managing emails via Google APIs, requiring the user's personal credentials.",
   "author": "intelligencebox",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "icon": "📧",
   "category": "productivity",
   "tags": ["gmail", "email", "google", "mail", "send", "read"],
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:latest",
   "transport": "sse",
-  "port": 8081,
-  "sseEndpoint": "/sse",
   "entrypoint": ["python", "-m", "gmail_server.sse_server"],
   "configSchema": {
-    "PORT": {
-      "type": "string",
-      "description": "La porta su cui il server SSE ascolterà le connessioni (default: 8081).",
-      "required": false,
-      "default": "8081"
-    },
     "GMAIL_CLIENT_ID": {
       "type": "string",
       "description": "Il Client ID ottenuto dalla tua Google Cloud Console per l'App Desktop.",
@@ -30,9 +22,20 @@
       "required": true
     }
   },
-  "needsFileAccess": true,
-  "volumeMounts": {
-    "data": "/data"
+  "dockerDefaults": {
+    "containerPort": 8081,
+    "sseEndpoint": "/sse",
+    "protocol": "tcp",
+    "needsPortMapping": true,
+    "defaultHostPort": 8081,
+    "needsFileAccess": true,
+    "volumeMounts": {
+      "data": "/data"
+    },
+    "resources": {
+      "memory": "512m",
+      "cpus": "0.5"
+    }
   },
   "requirements": {
     "minMemory": "256Mi",
