@@ -8,12 +8,24 @@
   "category": "productivity",
   "tags": ["document", "docx", "pdf", "doc", "text", "report"],
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-document-generator:latest",
+  "transport": "stdio",
   "entrypoint": ["python", "-m", "document_generator"],
   "configSchema": {},
-  "needsFileAccess": true,
-  "volumeMounts": {
-    "output": "/output",
-    "dataai": "/dataai"
+  "dockerDefaults": {
+    "containerPort": 8000,
+    "sseEndpoint": "/sse",
+    "protocol": "tcp",
+    "needsPortMapping": true,
+    "defaultHostPort": 8000,
+    "needsFileAccess": true,
+    "volumeMounts": {
+      "output": "/output",
+      "dataai": "/dataai"
+    },
+    "resources": {
+      "memory": "512m",
+      "cpus": "0.5"
+    }
   },
   "requirements": {
     "minMemory": "256Mi",

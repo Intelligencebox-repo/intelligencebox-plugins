@@ -7,14 +7,15 @@
   "icon": "🔎",
   "category": "business",
   "tags": ["verifica codici", "validazione"],
-  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-verifica-codici:latest",
+  "dockerImage": "mcp-verifica-codici:local",
   "transport": "sse",
   "entrypoint": ["python", "-m", "verifica_codici.sse_server"],
   "configSchema": {
-    "CHAT_URL": {
+    "RAG_ENDPOINT": {
       "type": "string",
-      "description": "L'URL per chattare con la Box.",
-      "required": false
+      "description": "URL endpoint per RAG search dei documenti nella collection",
+      "required": true,
+      "default": "http://host.docker.internal:8080/api/rag/search-documents"
     }
   },
   "dockerDefaults": {

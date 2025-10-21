@@ -23,6 +23,7 @@ from .script5 import verifica_codici
 class VerificaCodiciParams(BaseModel):
     index_pdf_path: str = Field(..., description="Il percorso del file PDF che contiene l'elenco dei documenti da verificare.")
     codice_commessa: str = Field(..., description="Il codice della commessa da utilizzare per filtrare i documenti nell'elenco.")
+    collection_id: str = Field(..., description="Collection ID dove cercare i documenti da verificare tramite RAG.")
 
 
 # --- CREAZIONE DEL SERVER MCP ---
@@ -67,8 +68,8 @@ def create_verifica_codici_server() -> Server:
                 titolo_documento = doc.get('titolo', 'Titolo Sconosciuto')
                 
                 try:
-                    # STEP 2: Recupero del file specifico
-                    percorso_file = await recupera_percorso_file(titolo_documento)
+                    # STEP 2: Recupero del file specifico tramite RAG
+                    percorso_file = await recupera_percorso_file(titolo_documento, params.collection_id)
 
                     # STEP 3: Generazione dell'immagine pulita
                     immagine_pulita = await asyncio.to_thread(genera_immagine_pulita, percorso_file)

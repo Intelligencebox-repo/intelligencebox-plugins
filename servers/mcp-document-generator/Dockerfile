@@ -19,9 +19,9 @@ COPY ./src ./src
 ENV PYTHONPATH="/app/src"
 
 
-# Esponi la porta 8000 per il server web
+# Expose port for SSE mode
 EXPOSE 8000
 
-
-# 7. Comando di Avvio
-CMD ["python", "-m", "document_generator"]
+# 7. Comando di Avvio - usa SSE mode di default per Docker
+# Per usare stdio mode, override con: python -m document_generator
+CMD ["python", "-m", "document_generator.sse_server"]

@@ -32,8 +32,8 @@ cffi==2.0.0
     # via cryptography
 charset-normalizer==3.4.3
     # via pdfminer-six
-colorama==0.4.6
-    # via tqdm
+click==8.3.0
+    # via uvicorn
 cryptography==46.0.2
     # via pdfminer-six
 distro==1.9.0
@@ -43,7 +43,9 @@ frozenlist==1.8.0
     #   aiohttp
     #   aiosignal
 h11==0.16.0
-    # via httpcore
+    # via
+    #   httpcore
+    #   uvicorn
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
@@ -128,16 +130,26 @@ sniffio==1.3.1
     #   anyio
     #   openai
 sse-starlette==3.0.2
-    # via mcp
+    # via
+    #   verifica-codici (pyproject.toml)
+    #   mcp
 starlette==0.48.0
-    # via mcp
+    # via
+    #   verifica-codici (pyproject.toml)
+    #   mcp
 tqdm==4.67.1
     # via openai
 typing-extensions==4.15.0
     # via
     #   verifica-codici (pyproject.toml)
+    #   aiosignal
+    #   anyio
     #   openai
     #   pydantic
     #   pydantic-core
+    #   referencing
+    #   starlette
+uvicorn==0.38.0
+    # via verifica-codici (pyproject.toml)
 yarl==1.22.0
     # via aiohttp

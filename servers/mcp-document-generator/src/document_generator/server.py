@@ -16,24 +16,6 @@ import pypandoc
 import markdown2
 from xhtml2pdf import pisa
 
-# FastAPI per servire i file generati
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-import uvicorn
-
-
-# --- INIZIALIZZAZIONE DI FASTAPI ---
-app = FastAPI()
-
-os.makedirs("output", exist_ok=True)
-app.mount("/files", StaticFiles(directory="output"), name="files")
-
-# Definisce l'host e la porta per il server web.
-SERVER_HOST = "0.0.0.0"
-SERVER_PORT = 8000
-HOSTNAME = os.getenv("PUBLIC_HOSTNAME", "localhost")
-BASE_URL = f"http://{HOSTNAME}:{SERVER_PORT}"
-
 
 # --- Definizione dei Parametri per gli Strumenti ---
 class CreateDocxParams(BaseModel):
@@ -45,6 +27,12 @@ class CreatePdfParams(BaseModel):
     """Parametri per lo strumento di creazione PDF."""
     filename: Annotated[str, Field(description="Il nome del file PDF da creare (es. 'report.pdf').")]
     text_content: Annotated[str, Field(description="Il testo in formato Markdown da scrivere nel file.")]
+
+
+# --- CONFIGURATION ---
+HOSTNAME = os.getenv("PUBLIC_HOSTNAME", "localhost")
+SERVER_PORT = int(os.getenv("PORT", "8000"))
+BASE_URL = f"http://{HOSTNAME}:{SERVER_PORT}"
 
 
 # --- FUNZIONE HELPER per nomi di file unici ---
@@ -82,7 +70,7 @@ def create_docx_file(filename: str, text_content: str) -> str:
         return f"File DOCX creato con successo. Informa l'utente che il file '{final_filename}' è stato creato e forniscigli esplicitamente questo link per il download: {BASE_URL}/files/{final_filename}"
     except Exception as e:
         raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Errore durante la creazione del DOCX con Pandoc: {e}"))
-    
+
 def create_pdf_file(filename: str, text_content: str) -> str:
     """Crea un file PDF convertendo il testo Markdown in HTML. Salva il file sul sevrer e fornisce come risposta il link per accedervi."""
     output_directory = "output"
@@ -104,15 +92,12 @@ def create_pdf_file(filename: str, text_content: str) -> str:
         raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Errore durante la creazione del PDF: {e}"))
     
 
-# --- Logica del Server MCP ---
-async def serve() -> None:
-    """Avvia il server MCP per il generatore di documenti."""
-
-    # --- Avvio del server web in background ---
-    config = uvicorn.Config(app, host=SERVER_HOST, port=SERVER_PORT, log_level="info")
-    uvicorn_server = uvicorn.Server(config)
-    asyncio.create_task(uvicorn_server.serve())
-
+# --- CREAZIONE DEL SERVER MCP ---
+def create_document_server() -> Server:
+    """
+    Crea e configura il server MCP per Document Generator.
+    Questa funzione può essere riutilizzata per diversi tipi di trasporto.
+    """
     server = Server("document-generator")
 
     # Registra gli strumenti
@@ -134,24 +119,37 @@ async def serve() -> None:
     # Definisce come eseguire lo strumento quando viene chiamato
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-        if name == "create_docx":
-            try:
+        try:
+            result_message = None
+
+            if name == "create_docx":
                 args = CreateDocxParams(**arguments)
-                result_message = create_docx_file(args.filename, args.text_content)
-            except ValueError as e:
-                raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Parametri invalidi per create_docx: {e}"))
-        elif name == "create_pdf":
-            try:
+                result_message = await asyncio.to_thread(create_docx_file, args.filename, args.text_content)
+
+            elif name == "create_pdf":
                 args = CreatePdfParams(**arguments)
-                result_message = create_pdf_file(args.filename, args.text_content)
-            except ValueError as e:
-                raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Parametri invalidi per create_pdf: {e}"))
-        else:
-            raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Strumento '{name}' non conosciuto."))
+                result_message = await asyncio.to_thread(create_pdf_file, args.filename, args.text_content)
 
-        return [TextContent(type="text", text=result_message)]    
+            else:
+                raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Strumento '{name}' non conosciuto."))
 
-    # Avvia il server e lo mette in ascolto
+            return [TextContent(type="text", text=result_message)]
+
+        except Exception as e:
+            # Cattura sia gli errori di validazione Pydantic che quelli della logica di business
+            raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Errore durante l'esecuzione del tool '{name}': {e}"))
+
+    return server
+
+
+# --- FUNZIONE PRINCIPALE DEL SERVER (STDIO MODE) ---
+async def serve() -> None:
+    """
+    Funzione principale che configura e avvia il server MCP per Document Generator in modalità stdio.
+    """
+    server = create_document_server()
+
+    # --- AVVIO DEL SERVER IN MODALITÀ STDIO ---
     options = server.create_initialization_options()
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, options)

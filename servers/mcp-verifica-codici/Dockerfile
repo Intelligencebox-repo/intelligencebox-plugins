@@ -19,5 +19,5 @@ COPY ./src ./src
 # Configurazione dell'Ambiente Python
 ENV PYTHONPATH="/app/src"
 
-# Comando di Avvio
-CMD ["python", "-m", "verifica_codici"]
+# Comando di Avvio - usa SSE mode per Docker (stdio via docker exec)
+CMD ["python", "-m", "verifica_codici.sse_server"]
