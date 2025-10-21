@@ -6,6 +6,8 @@ import os
 
 from starlette.applications import Starlette
 from starlette.routing import Route
+from starlette.requests import Request
+from starlette.responses import Response
 from mcp.server.sse import SseServerTransport
 import uvicorn
 
@@ -17,23 +19,26 @@ from .server import create_gmail_server
 sse_transport = SseServerTransport("/messages")
 
 
-async def handle_sse(scope, receive, send):
+async def handle_sse(request: Request):
     """
     SSE GET endpoint - establishes Server-Sent Events stream
 
-    IMPORTANT: This uses raw ASGI signature (scope, receive, send) instead of
-    Starlette's Request wrapper. This is required because connect_sse() manages
-    the complete ASGI response lifecycle internally. Using Request would cause
-    Starlette to try sending its own response after connect_sse() completes,
-    resulting in "ASGI message 'http.response.start' sent after response completed" error.
+    IMPORTANT: Uses Starlette's Request wrapper to satisfy Route's expectations.
+    The connect_sse() context manager sends the SSE response internally via request._send.
+    We must return an empty Response() to satisfy Starlette's routing system, even though
+    connect_sse() already sent the complete response.
 
-    This pattern is per official MCP documentation at:
-    https://modelcontextprotocol.io/docs/develop/build-server
+    This pattern is per official MCP Python SDK example:
+    https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/server/sse.py
     """
     server = create_gmail_server()
 
-    # connect_sse handles the complete ASGI response lifecycle
-    async with sse_transport.connect_sse(scope, receive, send) as streams:
+    # connect_sse handles the complete ASGI response lifecycle internally
+    async with sse_transport.connect_sse(
+        request.scope,
+        request.receive,
+        request._send
+    ) as streams:
         read_stream, write_stream = streams
         options = server.create_initialization_options()
 
@@ -44,15 +49,25 @@ async def handle_sse(scope, receive, send):
             print(f"Error in SSE handler: {e}")
             raise
 
+    # Return empty response to satisfy Starlette (actual response already sent by connect_sse)
+    return Response()
 
-async def handle_messages(scope, receive, send):
+
+async def handle_messages(request: Request):
     """
     POST /messages endpoint - receives client messages
 
-    IMPORTANT: Also uses raw ASGI signature for the same reason as handle_sse.
-    The handle_post_message method manages the ASGI response lifecycle internally.
+    IMPORTANT: Uses Request wrapper and returns empty Response for same reason as handle_sse.
+    The handle_post_message method sends the response internally.
     """
-    await sse_transport.handle_post_message(scope, receive, send)
+    await sse_transport.handle_post_message(
+        request.scope,
+        request.receive,
+        request._send
+    )
+
+    # Return empty response to satisfy Starlette (actual response already sent)
+    return Response()
 
 
 # Create Starlette app with routes using raw ASGI endpoints
