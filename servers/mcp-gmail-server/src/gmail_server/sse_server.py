@@ -12,6 +12,24 @@ import uvicorn
 from .server import create_gmail_server
 
 
+class LoggingSendStream:
+    """Wraps a send stream to echo outgoing JSON-RPC messages for debugging."""
+
+    def __init__(self, inner_stream):
+        self._inner = inner_stream
+
+    async def send(self, message):
+        try:
+            payload = message.model_dump_json(by_alias=True, exclude_none=True)
+        except Exception:
+            payload = repr(message)
+        print(f"[SSE OUT] {payload}")
+        await self._inner.send(message)
+
+    async def aclose(self):
+        await self._inner.aclose()
+
+
 # Create SSE transport instance
 # The "/messages" endpoint will receive POST requests with client messages
 sse_transport = SseServerTransport("/messages")
@@ -30,12 +48,9 @@ async def handle_sse(scope, receive, send):
     server = create_gmail_server()
 
     # connect_sse handles the complete ASGI response lifecycle internally
-    async with sse_transport.connect_sse(
-        scope,
-        receive,
-        send
-    ) as streams:
+    async with sse_transport.connect_sse(scope, receive, send) as streams:
         read_stream, write_stream = streams
+        write_stream = LoggingSendStream(write_stream)
         options = server.create_initialization_options()
 
         try:
