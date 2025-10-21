@@ -18,6 +18,28 @@
       "default": "http://host.docker.internal:8080/api/collections/query"
     }
   },
+  "volumeMountsConfig": {
+    "dataai": {
+      "envVars": ["DATA_AI_PATH", "MOUNT_PATH", "FILE_DIRECTORY"],
+      "description": "Directory principale per i file AI/documenti processati",
+      "required": true
+    },
+    "store_image": {
+      "envVars": ["IMAGE_DIRECTORY", "IMAGE_DIRECTORY_PATH"],
+      "description": "Directory per storage delle immagini",
+      "required": false
+    },
+    "output": {
+      "envVars": ["OUTPUT_DIR", "OUTPUT_PATH"],
+      "description": "Directory per output e file generati",
+      "required": false
+    },
+    "data": {
+      "envVars": ["DATA_PATH", "MOUNT_PATH"],
+      "description": "Directory dati generica",
+      "required": false
+    }
+  },
   "dockerDefaults": {
     "containerPort": 8080,
     "sseEndpoint": "/sse",

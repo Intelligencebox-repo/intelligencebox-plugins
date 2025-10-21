@@ -49,7 +49,8 @@ export async function GET(
         needsPortMapping: mcp.transport === 'sse',
         defaultHostPort: mcp.port,
         needsFileAccess: mcp.needsFileAccess || false,
-        volumeMounts: mcp.volumeMounts || {},
+        // Try to read volumeMounts from dockerDefaults first, then fall back to root level
+        volumeMounts: mcp.dockerDefaults?.volumeMounts || mcp.volumeMounts || {},
         resources: mcp.dockerDefaults?.resources || {
           memory: '512m',
           cpus: '0.5'
