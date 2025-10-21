@@ -3,11 +3,11 @@
   "name": "Gmail Server",
   "description": "MCP server for reading, sending, and managing emails via Google APIs, requiring the user's personal credentials.",
   "author": "intelligencebox",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "icon": "📧",
   "category": "productivity",
   "tags": ["gmail", "email", "google", "mail", "send", "read"],
-  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:latest",
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:1.2.1",
   "transport": "sse",
   "entrypoint": ["python", "-m", "gmail_server.sse_server"],
   "configSchema": {

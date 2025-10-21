@@ -17,6 +17,7 @@ class LoggingSendStream:
 
     def __init__(self, inner_stream):
         self._inner = inner_stream
+        self._entered = False
 
     async def send(self, message):
         try:
@@ -26,8 +27,24 @@ class LoggingSendStream:
         print(f"[SSE OUT] {payload}")
         await self._inner.send(message)
 
+    async def __aenter__(self):
+        if hasattr(self._inner, "__aenter__"):
+            await self._inner.__aenter__()
+        self._entered = True
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if hasattr(self._inner, "__aexit__") and self._entered:
+                return await self._inner.__aexit__(exc_type, exc_val, exc_tb)
+        finally:
+            self._entered = False
+
     async def aclose(self):
         await self._inner.aclose()
+
+    def __getattr__(self, item):
+        return getattr(self._inner, item)
 
 
 # Create SSE transport instance
