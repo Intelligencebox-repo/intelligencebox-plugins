@@ -34,12 +34,12 @@ async def recupera_percorso_file(nome_documento: str, collection_id: str) -> str
         "Content-Type": "application/json"
     }
 
-    # Payload per endpoint /api/collections/query di Cinzia-Pro
+    # Payload per endpoint /query di Cinzia-Pro
+    # Note: pipeline_version is omitted to let the server auto-detect v1/v2
     payload = {
         "query": nome_documento,              # Titolo documento dall'elenco
         "collection_name": collection_id,      # Collection dove cercare
-        "search_mode": "standard",             # Modalità di ricerca
-        "pipeline_version": None               # Auto-detect v1/v2
+        "search_mode": "standard"              # Modalità di ricerca
     }
 
     try:
