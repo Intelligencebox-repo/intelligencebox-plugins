@@ -54,7 +54,7 @@ def create_gmail_server() -> Server:
         return [
 
             # Tool autenticazione
-            Tool(name="start-authentication", description="Inizia il flusso di autorizzazione per collegare un account Google e restituisce l'URL a cui l'utente deve accedere.", inputSchema={}),
+            Tool(name="start-authentication", description="Inizia il flusso di autorizzazione per collegare un account Google e restituisce l'URL a cui l'utente deve accedere.", inputSchema={"type": "object", "properties": {}}),
             Tool(name="complete-authentication", description="Completa il flusso di autorizzazione usando il codice fornito da Google per generare il token di accesso.", inputSchema=CompleteAuthParams.model_json_schema()),
 
             # Tool Gmail
