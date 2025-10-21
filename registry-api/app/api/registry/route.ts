@@ -37,6 +37,23 @@ export async function GET(request: NextRequest) {
     const mcpsWithAllFields = mcps.map(mcp => ({
       ...mcp,
       entrypoint: mcp.entrypoint,
+
+      // NEW: Build dockerDefaults structure if not present (supports both old and new formats)
+      dockerDefaults: mcp.dockerDefaults || {
+        containerPort: mcp.port,
+        sseEndpoint: mcp.sseEndpoint,
+        protocol: 'tcp' as const,
+        needsPortMapping: mcp.transport === 'sse',
+        defaultHostPort: mcp.port,
+        needsFileAccess: mcp.needsFileAccess || false,
+        volumeMounts: mcp.volumeMounts || {},
+        resources: mcp.dockerDefaults?.resources || {
+          memory: '512m',
+          cpus: '0.5'
+        }
+      },
+
+      // Keep legacy fields for backward compatibility
       needsFileAccess: mcp.needsFileAccess || false,
       volumeMounts: mcp.volumeMounts || {}
     }));

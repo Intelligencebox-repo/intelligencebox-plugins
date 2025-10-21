@@ -123,6 +123,16 @@ export default function AdminDashboard() {
             documentationUrl: manifest.documentationUrl || '',
             enabled: true,
             visibility: 'public',
+
+            // NEW: Preserve dockerDefaults from manifest
+            dockerDefaults: manifest.dockerDefaults,
+
+            // Legacy fields
+            transport: manifest.transport,
+            port: manifest.port,
+            sseEndpoint: manifest.sseEndpoint,
+            needsFileAccess: manifest.needsFileAccess,
+            volumeMounts: manifest.volumeMounts,
             featured: false
           });
           setShowCreateForm(true);
