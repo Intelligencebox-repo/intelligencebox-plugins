@@ -25,6 +25,8 @@ certifi==2025.8.3
     #   requests
 charset-normalizer==3.4.3
     # via requests
+click==8.3.0
+    # via uvicorn
 google-api-core==2.25.2
     # via google-api-python-client
 google-api-python-client==2.184.0
@@ -44,7 +46,9 @@ google-auth-oauthlib==1.2.2
 googleapis-common-protos==1.70.0
     # via google-api-core
 h11==0.16.0
-    # via httpcore
+    # via
+    #   httpcore
+    #   uvicorn
 httpcore==1.0.9
     # via httpx
 httplib2==0.31.0
@@ -117,15 +121,24 @@ sniffio==1.3.1
     #   gmail-server (pyproject.toml)
     #   anyio
 sse-starlette==3.0.2
-    # via mcp
+    # via
+    #   gmail-server (pyproject.toml)
+    #   mcp
 starlette==0.48.0
-    # via mcp
+    # via
+    #   gmail-server (pyproject.toml)
+    #   mcp
 typing-extensions==4.15.0
     # via
     #   gmail-server (pyproject.toml)
+    #   anyio
     #   pydantic
     #   pydantic-core
+    #   referencing
+    #   starlette
 uritemplate==4.2.0
     # via google-api-python-client
 urllib3==2.5.0
     # via requests
+uvicorn==0.38.0
+    # via gmail-server (pyproject.toml)

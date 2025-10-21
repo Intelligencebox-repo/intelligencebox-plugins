@@ -20,6 +20,11 @@ dependencies = [
     "annotated-types",
     "typing_extensions",
 
+    # === DIPENDENZE PER SSE SERVER ===
+    "uvicorn",
+    "starlette",
+    "sse-starlette",
+
     # === NUOVE DIPENDENZE PER L'API DI GOOGLE ===
     "google-api-python-client",
     "google-auth-httplib2",

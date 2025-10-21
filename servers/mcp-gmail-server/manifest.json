@@ -9,10 +9,16 @@
   "tags": ["gmail", "email", "google", "mail", "send", "read"],
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:latest",
   "transport": "sse",
-  "port": 8080,
+  "port": 8081,
   "sseEndpoint": "/sse",
   "entrypoint": ["python", "-m", "gmail_server.sse_server"],
   "configSchema": {
+    "PORT": {
+      "type": "string",
+      "description": "La porta su cui il server SSE ascolterà le connessioni (default: 8081).",
+      "required": false,
+      "default": "8081"
+    },
     "GMAIL_CLIENT_ID": {
       "type": "string",
       "description": "Il Client ID ottenuto dalla tua Google Cloud Console per l'App Desktop.",
