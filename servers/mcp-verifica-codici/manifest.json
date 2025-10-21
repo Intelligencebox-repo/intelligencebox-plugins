@@ -3,7 +3,7 @@
   "name": "Verifica Codici",
   "description": "Un server MCP che esegue una validazione incrociata tra un elenco di documenti e i codici identificativi presenti all'interno di ogni singolo file.",
   "author": "intelligencebox",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "icon": "🔎",
   "category": "business",
   "tags": ["verifica codici", "validazione"],
@@ -15,7 +15,7 @@
       "type": "string",
       "description": "URL endpoint per RAG search dei documenti nella collection",
       "required": true,
-      "default": "http://host.docker.internal:8080/api/collections/query"
+      "default": "http://host.docker.internal:8090/query"
     }
   },
   "volumeMountsConfig": {
