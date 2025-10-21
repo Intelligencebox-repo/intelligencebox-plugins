@@ -9,6 +9,7 @@ export default function Home() {
           <p className="text-xl text-gray-600">Model Context Protocol Server Registry & Management</p>
         </div>
 
+
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           <Link href="/registry" className="block">
             <div className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow p-8 h-full">
