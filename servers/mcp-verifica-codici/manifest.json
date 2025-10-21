@@ -26,6 +26,9 @@
     "defaultHostPort": 8080,
     "needsFileAccess": true,
     "volumeMounts": {
+      "dataai": "/dataai",
+      "store_image": "/store_image",
+      "output": "/output",
       "data": "/data"
     },
     "resources": {
