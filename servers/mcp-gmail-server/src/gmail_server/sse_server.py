@@ -6,6 +6,7 @@ import asyncio
 import os
 
 from starlette.applications import Starlette
+from starlette.routing import Route
 from starlette.requests import Request
 from mcp.server.sse import SseServerTransport
 import uvicorn
@@ -14,30 +15,6 @@ from sse_starlette import EventSourceResponse
 from .server import create_gmail_server
 
 
-async def handle_sse(request: Request):
-    """Handle SSE endpoint for MCP protocol"""
-    async with SseServerTransport("/messages") as streams:
-        # Create the Gmail server
-        server = create_gmail_server()
-
-        # Initialize server options
-        options = server.create_initialization_options()
-
-        # Set up the SSE transport
-        read_stream, write_stream = streams
-
-        # Run the server with the streams
-        await server.run(read_stream, write_stream, options)
-
-
-# Create Starlette app with SSE route
-app = Starlette(
-    debug=False,
-    routes=[],
-)
-
-
-@app.get("/sse")
 async def sse_endpoint(request: Request):
     """SSE endpoint for MCP communication"""
     # Create the Gmail server instance
@@ -57,6 +34,15 @@ async def sse_endpoint(request: Request):
                 raise
 
     return EventSourceResponse(event_generator())
+
+
+# Create Starlette app with SSE route
+app = Starlette(
+    debug=False,
+    routes=[
+        Route("/sse", sse_endpoint, methods=["GET"]),
+    ],
+)
 
 
 def main():
