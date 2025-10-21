@@ -7,7 +7,7 @@
   "icon": "🔎",
   "category": "business",
   "tags": ["verifica codici", "validazione"],
-  "dockerImage": "mcp-verifica-codici:local",
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-verifica-codici:latest",
   "transport": "sse",
   "entrypoint": ["python", "-m", "verifica_codici.sse_server"],
   "configSchema": {
