@@ -57,7 +57,7 @@ def create_verifica_codici_server() -> Server:
 
             # --- ESECUZIONE DELLA LOGICA DI ORCHESTRAZIONE ---
 
-            # STEP 1: Estrazione dell'elenco documenti
+            # STEP 1 - script1: Estrazione dell'elenco documenti
             elenco_da_controllare = await asyncio.to_thread(estrai_elenco_documenti, params.index_pdf_path, params.codice_commessa)
             if not elenco_da_controllare:
                 return [TextContent(type="text", text="Verifica completata: nessun documento trovato nell'elenco fornito.")]
@@ -68,18 +68,18 @@ def create_verifica_codici_server() -> Server:
                 titolo_documento = doc.get('titolo', 'Titolo Sconosciuto')
                 
                 try:
-                    # STEP 2: Recupero del file specifico tramite RAG
+                    # STEP 2 - script2: Recupero del file specifico tramite RAG
                     percorso_file = await recupera_percorso_file(titolo_documento, params.collection_id)
 
-                    # STEP 3: Generazione dell'immagine pulita
+                    # STEP 3 - script3: Generazione dell'immagine pulita
                     immagine_pulita = await asyncio.to_thread(genera_immagine_pulita, percorso_file)
                     if immagine_pulita is None:
                         raise ValueError("Generazione dell'immagine pulita fallita.")
 
-                    # STEP 4: Estrazione del codice tramite Tesseract
+                    # STEP 4 - script4: Estrazione del codice tramite Tesseract
                     codice_estratto = await asyncio.to_thread(estrai_codice_immagine, immagine_pulita)
 
-                    # STEP 5: Verifica dei codici
+                    # STEP 5 - script5: Verifica dei codici
                     risultato_verifica = verifica_codici(doc, codice_estratto)
 
                     if risultato_verifica['status'] == 'FAILED':
