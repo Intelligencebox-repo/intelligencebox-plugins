@@ -42,7 +42,7 @@ class GoogleAuthManager:
         per il consenso dell'utente.
         """
         flow = InstalledAppFlow.from_client_config(self.client_config, self.scopes)
-        flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+        #flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
         auth_url, _ = flow.authorization_url(prompt='consent')
         return auth_url
 
@@ -52,7 +52,7 @@ class GoogleAuthManager:
         e salvarlo su disco in modo persistente.
         """
         flow = InstalledAppFlow.from_client_config(self.client_config, self.scopes)
-        flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+        #flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
         flow.fetch_token(code=code)
         
         os.makedirs(os.path.dirname(self.TOKEN_PATH), exist_ok=True)
