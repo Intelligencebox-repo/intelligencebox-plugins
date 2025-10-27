@@ -33,7 +33,7 @@ class EmailIdParams(BaseModel):
 
 # Per gestire l'autenticazione
 class CompleteAuthParams(BaseModel):
-    code: str = Field(description="Il codice di autorizzazione ottenuto da Google dopo il consenso dell'utente.")
+    code_url: str = Field(description="L'URL completo a cui sei stato reindirizzato da Google (anche se mostra un errore).")
 
 
 # --- CREAZIONE DEL SERVER MCP ---
@@ -55,7 +55,7 @@ def create_gmail_server() -> Server:
 
             # Tool autenticazione
             Tool(name="start-authentication", description="Inizia il flusso di autorizzazione per collegare un account Google e restituisce l'URL a cui l'utente deve accedere.", inputSchema={"type": "object", "properties": {}}),
-            Tool(name="complete-authentication", description="Completa il flusso di autorizzazione usando il codice fornito da Google per generare il token di accesso.", inputSchema=CompleteAuthParams.model_json_schema()),
+            Tool(name="complete-authentication", description="Completa l'autenticazione estraendo il codice dall'URL di reindirizzamento fornito da Google.", inputSchema=CompleteAuthParams.model_json_schema()),
 
             # Tool Gmail
             Tool(name="send-email", description="Invia una email tramite Gmail.", inputSchema=SendEmailParams.model_json_schema()),
@@ -78,7 +78,7 @@ def create_gmail_server() -> Server:
 
             elif name == "complete-authentication":
                 args = CompleteAuthParams(**arguments)
-                await asyncio.to_thread(gmail_tool.complete_authentication, args.code)
+                await asyncio.to_thread(gmail_tool.complete_authentication, args.code_url)
                 result_message = "Autenticazione completata con successo! Il tool è pronto."
 
             # Gestione tool Gmail
