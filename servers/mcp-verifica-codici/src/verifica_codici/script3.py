@@ -51,14 +51,14 @@ def genera_immagine_pulita(percorso_file):
             gray_clean = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
             thresh_inverted = cv2.threshold(gray_clean, 200, 255, cv2.THRESH_BINARY_INV)[1]
             # 5.2 Applica la dilatazione per inspessire il testo (che ora è bianco)
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2,2))
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
             dilated_image = cv2.dilate(thresh_inverted, kernel, iterations=1)
             # 5.3 Inverte di nuovo l'immagine per tornare a testo nero su sfondo bianco
             final_image = cv2.bitwise_not(dilated_image)
 
             # --- PASSAGGIO 6: SMOOTHING DEI BORDI ---
             # Applica una leggera sfocatura Gaussiana per ammorbidire i bordi.
-            # (2,2) è la dimensione del kernel di sfocatura: più è grande, più l'effetto è forte.
+            # (3,3) è la dimensione del kernel di sfocatura: più è grande, più l'effetto è forte.
             smoothed_image = cv2.GaussianBlur(final_image, (3,3), 0)
 
             return smoothed_image

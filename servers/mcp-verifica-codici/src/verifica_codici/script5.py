@@ -33,16 +33,37 @@ def verifica_codici(codici_da_elenco, codice_immagine):
 
 
     # --- STEP 3: Confronta e restituisce il risultato ---
-    # Prepara il dizionario del risultato con una struttura fissa
+    status = 'OK' # Default
+    lunghezza_elenco = len(stringa_codice_completo_elenco)
+    lunghezza_immagine = len(stringa_codice_immagine)
+
+    # Controllo preliminare sulla lunghezza
+    if lunghezza_elenco != lunghezza_immagine:
+        status = 'FAILED'
+    else:
+        # Confronto carattere per carattere
+        for i in range(lunghezza_immagine):
+            char_elenco = stringa_codice_completo_elenco[i]
+            char_immagine = stringa_codice_immagine[i]
+
+            if char_elenco == char_immagine:
+                continue
+
+            # Se sono diversi, controlla se è l'ambiguità O/0
+            elif (char_elenco == 'O' and char_immagine == '0') or \
+                 (char_elenco == '0' and char_immagine == 'O'):
+                continue # Considera O e 0 come uguali
+
+            else:
+                status = 'FAILED'
+                break
+
+    # Prepara il risultato
     risultato = {
         'titolo_documento': codici_da_elenco.get('titolo'),
         'codice_atteso': stringa_codice_completo_elenco,
         'codice_estratto': stringa_codice_immagine,
-        'status': 'OK' # Impostato di default su OK
+        'status': status
     }
-
-    # Confronta e aggiorna lo status se necessario
-    if stringa_codice_completo_elenco != stringa_codice_immagine:
-        risultato['status'] = 'FAILED'
 
     return risultato

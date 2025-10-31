@@ -4,6 +4,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from urllib.parse import urlparse, parse_qs
 
 # Definisce un'eccezione custom per errori di autenticazione
 class AuthError(Exception):
@@ -42,25 +43,37 @@ class GoogleAuthManager:
         per il consenso dell'utente.
         """
         flow = InstalledAppFlow.from_client_config(self.client_config, self.scopes)
-        flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+        flow.redirect_uri = 'http://localhost'
         auth_url, _ = flow.authorization_url(prompt='consent')
         return auth_url
 
-    def complete_authentication_flow(self, code: str) -> None:
+    def complete_authentication_flow(self, code_url: str) -> None:
         """
         Usa il codice di autorizzazione fornito dall'utente per ottenere il token 
         e salvarlo su disco in modo persistente.
         """
-        flow = InstalledAppFlow.from_client_config(self.client_config, self.scopes)
-        flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
-        flow.fetch_token(code=code)
+        try:
+            parsed_url = urlparse(code_url)
+            query_params = parse_qs(parsed_url.query)
+            code = query_params.get('code', [None])[0]
+            if not code:
+                raise ValueError("Il parametro 'code' non è stato trovato nell'URL fornito.")
+            
+            flow = InstalledAppFlow.from_client_config(self.client_config, self.scopes)
+            flow.redirect_uri = 'http://localhost'
+            flow.fetch_token(code=code)
+            
+            os.makedirs(os.path.dirname(self.TOKEN_PATH), exist_ok=True)
+            
+            with open(self.TOKEN_PATH, 'w') as token_file:
+                token_file.write(flow.credentials.to_json())
+            
+            self.service_cache = {} # Svuota la cache per forzare la ri-creazione del servizio
         
-        os.makedirs(os.path.dirname(self.TOKEN_PATH), exist_ok=True)
-        
-        with open(self.TOKEN_PATH, 'w') as token_file:
-            token_file.write(flow.credentials.to_json())
-        
-        self.service_cache = {} # Svuota la cache per forzare la ri-creazione del servizio
+        except ValueError as ve:
+            raise AuthError(f"Errore durante l'estrazione del codice di autorizzazione: {ve}")
+        except Exception as e:
+            raise AuthError(f"Errore durante il completamento del flusso di autenticazione: {e}")
 
     def get_service(self, api_name: str, api_version: str):
         """
