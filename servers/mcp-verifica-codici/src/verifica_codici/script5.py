@@ -1,3 +1,9 @@
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 def verifica_codici(codici_da_elenco, codice_immagine):
     """
     Confronta i dati attesi di un documento con una stringa di codice estratta.

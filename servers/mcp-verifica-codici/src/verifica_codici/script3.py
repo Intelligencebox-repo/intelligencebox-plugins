@@ -1,6 +1,11 @@
 import pdfplumber
 import cv2
 import numpy as np
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def genera_immagine_pulita(percorso_file):
     """

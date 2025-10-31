@@ -1,5 +1,9 @@
 import pdfplumber
+import logging
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def _normalize_value(value: str | None) -> str:
     """Normalize values by trimming and collapsing whitespace."""
@@ -44,5 +48,7 @@ def estrai_elenco_documenti(percorso_file, codice):
                             'scala': row[13] if row[13] else '/'
                         }
                         lista_documenti.append(doc)
+
+    logger.info(f"Lista documenti estratti: {lista_documenti}")   # Debug
 
     return lista_documenti
