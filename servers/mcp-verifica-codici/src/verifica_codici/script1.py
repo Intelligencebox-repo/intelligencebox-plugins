@@ -1,13 +1,32 @@
 import pdfplumber
 
+
+def _normalize_value(value: str | None) -> str:
+    """Normalize values by trimming and collapsing whitespace."""
+    if not value:
+        return ""
+    return " ".join(str(value).strip().split())
+
+
 def estrai_elenco_documenti(percorso_file, codice):
+    codice_normalizzato = _normalize_value(codice)
     lista_documenti = []
     with pdfplumber.open(percorso_file) as pdf:
         for page in pdf.pages[1:]:
             tables = page.extract_tables()
             for table in tables:
                 for row in table:
-                    if row and len(row) > 13 and row[0] == codice:
+                    if not row or len(row) <= 13:
+                        continue
+
+                    commessa = _normalize_value(row[0])
+                    lotto = _normalize_value(row[1]) if len(row) > 1 else ""
+                    commessa_combinata = " ".join(filter(None, [commessa, lotto]))
+
+                    if (
+                        commessa == codice_normalizzato
+                        or commessa_combinata == codice_normalizzato
+                    ):
                         doc = {
                             'commessa': row[0] if row[0] else '/',
                             'lotto': row[1] if row[1] else '/',
@@ -25,5 +44,5 @@ def estrai_elenco_documenti(percorso_file, codice):
                             'scala': row[13] if row[13] else '/'
                         }
                         lista_documenti.append(doc)
-                        
+
     return lista_documenti
