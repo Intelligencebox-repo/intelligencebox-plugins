@@ -63,6 +63,7 @@ def create_verifica_codici_server() -> Server:
                 return [TextContent(type="text", text="Verifica completata: nessun documento trovato nell'elenco fornito.")]
 
             risultati_negativi = []
+            risultati_positivi = []
             # Inizio ciclo di elaborazione
             for doc in elenco_da_controllare:
                 titolo_documento = doc.get('titolo', 'Titolo Sconosciuto')
@@ -84,6 +85,8 @@ def create_verifica_codici_server() -> Server:
 
                     if risultato_verifica['status'] == 'FAILED':
                         risultati_negativi.append(risultato_verifica)
+                    elif risultato_verifica['status'] == 'SUCCESS':
+                        risultati_positivi.append(risultato_verifica)
                 
                 except Exception as e:
                     risultati_negativi.append({
@@ -95,7 +98,15 @@ def create_verifica_codici_server() -> Server:
             
             # --- Creazione del Report Finale ---
             if not risultati_negativi:
-                report_finale = f"Successo! I codici di tutti i {len(elenco_da_controllare)} documenti analizzati coincidono."
+                report_lines = [f"Successo! I codici di tutti i {len(elenco_da_controllare)} documenti analizzati coincidono."]
+                for ris in risultati_positivi:
+                    line = (
+                        f"- Titolo: {ris['titolo_documento']}\n"
+                        f"  Codice Atteso:   {ris.get('codice_atteso', 'N/A')}\n"
+                        f"  Codice Estratto: {ris.get('codice_estratto', 'N/A')}"
+                    )
+                    report_lines.append(line)
+                report_finale = "\n".join(report_lines)
             else:
                 report_lines = [f"Sono stati trovati {len(risultati_negativi)} documenti con errori:"]
                 for res in risultati_negativi:
@@ -105,8 +116,18 @@ def create_verifica_codici_server() -> Server:
                         f"  Codice Estratto: {res.get('codice_estratto', 'N/A')}"
                     )
                     report_lines.append(line)
+                if risultati_positivi:
+                    report_lines.append(f"\n--- DOCUMENTI CORRETTI ({len(risultati_positivi)}) ---")
+                    for ris in risultati_positivi:
+                        line = (
+                            f"- Titolo: {ris['titolo_documento']}\n"
+                            f"  Codice Atteso:   {ris.get('codice_atteso', 'N/A')}\n"
+                            f"  Codice Estratto: {ris.get('codice_estratto', 'N/A')}"
+                        )
+                        report_lines.append(line)
+
                 report_finale = "\n".join(report_lines)
-                
+
             return [TextContent(type="text", text=report_finale)]
 
         except Exception as e:
