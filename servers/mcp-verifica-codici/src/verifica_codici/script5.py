@@ -39,7 +39,7 @@ def verifica_codici(codice_da_elenco, codice_immagine):
 
 
     # --- STEP 3: Confronta e restituisce il risultato ---
-    status = 'OK' # Default
+    status = 'SUCCESS' # Default
     lunghezza_elenco = len(stringa_codice_completo_elenco)
     lunghezza_immagine = len(stringa_codice_immagine)
 
