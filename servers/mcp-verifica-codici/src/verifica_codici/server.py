@@ -79,7 +79,8 @@ def create_verifica_codici_server() -> Server:
                 try:
                     # STEP 2 - script2: Recupero del file specifico tramite RAG
                     percorso_file = await recupera_percorso_file(titolo_documento, params.collection_id)
-
+                    raise ValueError(f"Recupero file fallito: {percorso_file}")
+                    
                     # STEP 3 - script3: Generazione dell'immagine pulita
                     immagine_pulita = await asyncio.to_thread(genera_immagine_pulita, percorso_file)
                     if immagine_pulita is None:
@@ -121,7 +122,8 @@ def create_verifica_codici_server() -> Server:
                     line = (
                         f"- Titolo: {res['titolo_documento']}\n"
                         f"  Codice Atteso:   {res.get('codice_atteso', 'N/A')}\n"
-                        f"  Codice Estratto: {res.get('codice_estratto', 'N/A')}"
+                        f"  Codice Estratto: {res.get('codice_estratto', 'N/A')}\n"
+                        f"  Dettagli Errore: {res.get('error_details', 'N/A')}"
                     )
                     report_lines.append(line)
                 if risultati_positivi:
