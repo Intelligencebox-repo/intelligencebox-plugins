@@ -37,6 +37,24 @@ class GoogleAuthManager:
         
         self.service_cache = {} # Cache per gli oggetti 'service' già creati
 
+    def is_authenticated(self) -> bool:
+        """
+        Controlla se esiste un token.json valido o rinfrescabile.
+        Restituisce True se l'utente è considerato autenticato, False altrimenti.
+        """
+        if not os.path.exists(self.TOKEN_PATH):
+            return False  # File token non esiste
+        
+        try:
+            creds = Credentials.from_authorized_user_file(self.TOKEN_PATH, self.scopes)
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    return True  # È scaduto ma può essere rinfrescato, quindi è "autenticato"
+                return False  # È invalido e non rinfrescabile
+            return True  # È valido
+        except Exception:
+            return False  # File corrotto, illeggibile, o altri errori
+        
     def start_authentication_flow(self) -> str:
         """
         Crea un'istanza del flusso di autenticazione e restituisce l'URL 
@@ -103,3 +121,18 @@ class GoogleAuthManager:
             return service
         except Exception as e:
             raise Exception(f'Errore durante la creazione del servizio {api_name}: {e}')
+        
+    def logout(self) -> str:
+        """
+        Elimina il file token.json per disconnettere l'utente.
+        Svuota anche la cache del servizio in memoria.
+        """
+        if os.path.exists(self.TOKEN_PATH):
+            try:
+                os.remove(self.TOKEN_PATH)
+                self.service_cache = {}
+                return "Logout completato. Il token di autenticazione è stato eliminato."
+            except Exception as e:
+                raise AuthError(f"Errore durante l'eliminazione del token: {e}")
+        else:
+            return "Nessun utente autenticato. Il token non esisteva già."

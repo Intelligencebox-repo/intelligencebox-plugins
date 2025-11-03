@@ -38,6 +38,10 @@ class GmailTools:
         self.auth_manager = GoogleAuthManager(scopes=self.SCOPES)
 
     # --- Metodi per l'Autenticazione Guidata ---
+    def is_authenticated(self) -> bool:
+        """Metodo che verifica se l'utente è già autenticato."""
+        return self.auth_manager.is_authenticated()
+    
     def start_authentication(self) -> str:
         """Chiama il gestore di autenticazione per ottenere l'URL di consenso."""
         return self.auth_manager.start_authentication_flow()
@@ -45,6 +49,10 @@ class GmailTools:
     def complete_authentication(self, code: str) -> None:
         """Passa il codice al gestore di autenticazione per completare il processo."""
         self.auth_manager.complete_authentication_flow(code)
+
+    def logout(self) -> str:
+        """Chiama il gestore di autenticazione per eliminare il token."""
+        return self.auth_manager.logout()
 
     # --- Metodi per l'Interazione con Gmail ---
     def send_email(self, to: str, subject: str, body: str, body_type: Literal['plain', 'html'] = 'plain', attachment_paths: Optional[List] = None) -> dict:

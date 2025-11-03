@@ -33,7 +33,7 @@ class EmailIdParams(BaseModel):
 
 # Per gestire l'autenticazione
 class CompleteAuthParams(BaseModel):
-    code_url: str = Field(description="L'URL completo a cui sei stato reindirizzato da Google (anche se mostra un errore).")
+    code_url: str = Field(description="L'URL completo a cui l'utente è stato reindirizzato da Google (anche se la pagina mostra un errore).")
 
 
 # --- CREAZIONE DEL SERVER MCP ---
@@ -54,8 +54,9 @@ def create_gmail_server() -> Server:
         return [
 
             # Tool autenticazione
-            Tool(name="start-authentication", description="Inizia il flusso di autorizzazione per collegare un account Google e restituisce l'URL a cui l'utente deve accedere.", inputSchema={"type": "object", "properties": {}}),
+            Tool(name="start-authentication", description="Inizia il flusso di autorizzazione per collegare un account Google e restituisce l'URL a cui l'utente deve accedere. Prima di farlo controlla se l'utente è già autenticato, e nel caso restituisce un messaggio per confermarlo.", inputSchema={"type": "object", "properties": {}}),
             Tool(name="complete-authentication", description="Completa l'autenticazione estraendo il codice dall'URL di reindirizzamento fornito da Google.", inputSchema=CompleteAuthParams.model_json_schema()),
+            Tool(name="logout", description="Disconnette l'account Google eliminando il token di accesso salvato. Sarà necessaria una nuova autenticazione per riutilizzare il tool.", inputSchema={"type": "object", "properties": {}}),
 
             # Tool Gmail
             Tool(name="send-email", description="Invia una email tramite Gmail.", inputSchema=SendEmailParams.model_json_schema()),
@@ -73,13 +74,21 @@ def create_gmail_server() -> Server:
 
             # Gestione tool autenticazione
             if name == "start-authentication":
-                auth_url = await asyncio.to_thread(gmail_tool.start_authentication)
-                result_message = f"Per autorizzare, visita questo URL e copia il codice: {auth_url}"
+                # Controlla l'auth
+                is_auth = await asyncio.to_thread(gmail_tool.is_authenticated)
+                if is_auth:
+                    result_message = "Utente già autenticato e verificato. Il tool è pronto per l'uso. Procedi con la richiesta dell'utente."
+                else:
+                    auth_url = await asyncio.to_thread(gmail_tool.start_authentication)
+                    result_message = f"Utente non verificato. Per autorizzare, visita questo Link e copia l'URL di reindirizzamento: {auth_url}"
 
             elif name == "complete-authentication":
                 args = CompleteAuthParams(**arguments)
                 await asyncio.to_thread(gmail_tool.complete_authentication, args.code_url)
                 result_message = "Autenticazione completata con successo! Il tool è pronto."
+
+            elif name == "logout":
+                result_message = await asyncio.to_thread(gmail_tool.logout)
 
             # Gestione tool Gmail
             elif name == "send-email":
