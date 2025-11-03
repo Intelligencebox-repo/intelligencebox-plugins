@@ -48,7 +48,7 @@ async def recupera_percorso_file(nome_documento: str, collection_id: str) -> str
             async with session.post(api_url, headers=headers, json=payload) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    return f"Errore_RAG: HTTP {response.status} - {error_text}"
+                    return f"Errore_RAG: HTTP {response.status} - {error_text}\n ==================== \n Payload: {json.dumps(payload)}"
 
                 response_data = await response.json()
 
@@ -93,9 +93,9 @@ async def recupera_percorso_file(nome_documento: str, collection_id: str) -> str
                         logger.info(f"   ✅ Final normalized path: {file_path}")
                         return file_path
                     else:
-                        return f"Errore: File_path non valido per '{nome_documento}': {file_path}"
+                        return f"Errore: File_path non valido per '{nome_documento}': {file_path}\n ==================== \n Payload: {json.dumps(payload)}"
                 else:
-                    return f"Errore: File '{nome_documento}' non trovato nella collection '{collection_id}'"
+                    return f"Errore: File '{nome_documento}' non trovato nella collection '{collection_id}'\n ==================== \n Payload: {json.dumps(payload)}"
 
     except aiohttp.ClientError as e:
         return f"Errore_Connessione: {str(e)}"
