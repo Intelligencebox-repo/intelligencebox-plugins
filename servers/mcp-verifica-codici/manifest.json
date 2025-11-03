@@ -3,7 +3,7 @@
   "name": "Verifica Codici",
   "description": "Un server MCP che esegue una validazione incrociata tra un elenco di documenti e i codici identificativi presenti all'interno di ogni singolo file.",
   "author": "intelligencebox",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "icon": "🔎",
   "category": "business",
   "tags": ["verifica codici", "validazione"],

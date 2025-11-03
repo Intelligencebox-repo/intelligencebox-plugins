@@ -4,12 +4,12 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def verifica_codici(codici_da_elenco, codice_immagine):
+def verifica_codici(codice_da_elenco, codice_immagine):
     """
     Confronta i dati attesi di un documento con una stringa di codice estratta.
 
     Args:
-        codici_da_elenco (dict): Il dizionario con i dati originali del documento d'elenco.
+        codice_da_elenco (dict): Il dizionario con i dati originali del documento d'elenco.
         codice_immagine (str): La stringa estratta dalla box partendo dalla foto (es. "ADRPMV02-PEDSIE-RRT00-1").
 
     Returns:
@@ -26,7 +26,7 @@ def verifica_codici(codici_da_elenco, codice_immagine):
     # Pulisce il codice estratto
     codice_completo_elenco = []
     for campo in campi_da_unire:
-        valore = str(codici_da_elenco.get(campo, ''))
+        valore = str(codice_da_elenco.get(campo, ''))
         # Aggiunge il valore solo se non è un segnaposto vuoto
         if valore not in ['-', '/']:
             codice_completo_elenco.append(valore)
@@ -66,7 +66,7 @@ def verifica_codici(codici_da_elenco, codice_immagine):
 
     # Prepara il risultato
     risultato = {
-        'titolo_documento': codici_da_elenco.get('titolo'),
+        'titolo_documento': codice_da_elenco.get('titolo'),
         'codice_atteso': stringa_codice_completo_elenco,
         'codice_estratto': stringa_codice_immagine,
         'status': status
