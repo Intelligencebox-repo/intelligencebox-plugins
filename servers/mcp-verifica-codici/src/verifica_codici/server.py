@@ -58,17 +58,9 @@ def create_verifica_codici_server() -> Server:
             # --- ESECUZIONE DELLA LOGICA DI ORCHESTRAZIONE ---
 
             # STEP 1 - script1: Estrazione dell'elenco documenti
-            #elenco_da_controllare = await asyncio.to_thread(estrai_elenco_documenti, params.index_pdf_path, params.codice_commessa)
-            #if not elenco_da_controllare:
-                #return [TextContent(type="text", text="Verifica completata: nessun documento trovato nell'elenco fornito.")]
-            elenco_da_controllare = [
-                {'commessa': 'ADRPMV', 'lotto': '02', 'fase': 'PE', 'capitolo': 'DG', 'paragrafo': 'GEN', 'WBS': '-', 'parte d-opera': '-', 'tipologia': 'E', 'disciplina': 'ED', 'progressivo': '00', 'revisione': '1', 'titolo': 'Elenco Documenti', 'formato': 'A4', 'scala': '-'},
-                {'commessa': 'ADRPMV', 'lotto': '02', 'fase': 'PE', 'capitolo': 'DS', 'paragrafo': 'IE', 'WBS': '-', 'parte d-opera': '-', 'tipologia': 'R', 'disciplina': 'RT', 'progressivo': '00', 'revisione': '1', 'titolo': 'Relazione Tecnica - Rete Elettrica e\nDati', 'formato': 'A4', 'scala': '-'},
-                {'commessa': 'ADRPMV', 'lotto': '02', 'fase': 'PE', 'capitolo': 'DS', 'paragrafo': 'IE', 'WBS': '-', 'parte d-opera': '-', 'tipologia': 'R', 'disciplina': 'RC', 'progressivo': '00', 'revisione': '1', 'titolo': 'Relazione Calcolo - Rete Elettrica', 'formato': 'A4', 'scala': '-'},
-                {'commessa': 'ADRPMV', 'lotto': '02', 'fase': 'PE', 'capitolo': 'DS', 'paragrafo': 'C', 'WBS': '-', 'parte d-opera': '-', 'tipologia': 'E', 'disciplina': 'QE', 'progressivo': '00', 'revisione': '1', 'titolo': 'Quadro Economico', 'formato': 'A4', 'scala': '-'},
-                {'commessa': 'ADRPMV', 'lotto': '02', 'fase': 'PE', 'capitolo': 'DS', 'paragrafo': 'C', 'WBS': '-', 'parte d-opera': '-', 'tipologia': 'E', 'disciplina': 'EP', 'progressivo': '00', 'revisione': '1', 'titolo': 'Elenco Prezzi', 'formato': 'A4', 'scala': '-'},
-                {'commessa': 'ADRPMV', 'lotto': '02', 'fase': 'PE', 'capitolo': 'DS', 'paragrafo': 'C', 'WBS': '-', 'parte d-opera': '-', 'tipologia': 'E', 'disciplina': 'CM', 'progressivo': '00', 'revisione': '1', 'titolo': 'Computo Metrico Estimativo', 'formato': 'A4', 'scala': '-'}
-            ]
+            elenco_da_controllare = await asyncio.to_thread(estrai_elenco_documenti, params.index_pdf_path, params.codice_commessa)
+            if not elenco_da_controllare:
+                return [TextContent(type="text", text="Verifica completata: nessun documento trovato nell'elenco fornito.")]
             
             risultati_negativi = []
             risultati_positivi = []
@@ -79,7 +71,6 @@ def create_verifica_codici_server() -> Server:
                 try:
                     # STEP 2 - script2: Recupero del file specifico tramite RAG
                     percorso_file = await recupera_percorso_file(titolo_documento, params.collection_id)
-                    raise ValueError(f"Recupero file fallito: {percorso_file}")
                     
                     # STEP 3 - script3: Generazione dell'immagine pulita
                     immagine_pulita = await asyncio.to_thread(genera_immagine_pulita, percorso_file)
