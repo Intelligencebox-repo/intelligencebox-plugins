@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Installa Tesseract e il pacchetto per la lingua italiana (non si sa mai)
 RUN apt-get update && \
-    apt-get install -y tesseract-ocr tesseract-ocr-ita libgl1 && \
+    apt-get install -y libgl1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copia e Installazione delle Dipendenze Python
