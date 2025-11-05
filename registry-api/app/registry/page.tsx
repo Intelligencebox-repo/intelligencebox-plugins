@@ -141,7 +141,20 @@ export default function RegistryBrowser() {
     setSelectedMcp(mcp);
     const manifest = await fetchManifest(mcp.id);
     if (manifest) {
-      setSelectedMcp({ ...mcp, ...manifest });
+      const manifestData = {
+        ...manifest,
+        featured: mcp.featured
+      } as MCP;
+
+      if (!Object.prototype.hasOwnProperty.call(manifest, 'volumeMounts')) {
+        delete (manifestData as Partial<MCP>).volumeMounts;
+      }
+
+      if (manifestData.dockerDefaults && !Object.prototype.hasOwnProperty.call(manifestData.dockerDefaults, 'volumeMounts')) {
+        delete manifestData.dockerDefaults.volumeMounts;
+      }
+
+      setSelectedMcp(manifestData);
       setShowManifest(true);
     }
   };

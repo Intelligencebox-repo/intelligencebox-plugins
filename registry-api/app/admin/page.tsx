@@ -102,9 +102,38 @@ export default function AdminDashboard() {
       try {
         const text = await file.text();
         const manifest = JSON.parse(text);
+        const hasDockerDefaults = Object.prototype.hasOwnProperty.call(manifest, 'dockerDefaults');
+        const hasVolumeMounts = Object.prototype.hasOwnProperty.call(manifest, 'volumeMounts');
+        const clonedDockerDefaults =
+          hasDockerDefaults && manifest.dockerDefaults
+            ? { ...manifest.dockerDefaults }
+            : manifest.dockerDefaults;
+
+        if (clonedDockerDefaults && !Object.prototype.hasOwnProperty.call(clonedDockerDefaults, 'volumeMounts')) {
+          delete clonedDockerDefaults.volumeMounts;
+        }
         
         if (editingMcp) {
-          setEditingMcp({ ...editingMcp, ...manifest });
+          setEditingMcp(prev => {
+            if (!prev) {
+              return prev;
+            }
+            const updated = { ...prev, ...manifest } as MCP;
+
+            if (hasDockerDefaults) {
+              updated.dockerDefaults = clonedDockerDefaults;
+            } else {
+              delete updated.dockerDefaults;
+            }
+
+            if (hasVolumeMounts) {
+              updated.volumeMounts = manifest.volumeMounts;
+            } else {
+              delete updated.volumeMounts;
+            }
+
+            return updated;
+          });
         } else {
           setEditingMcp({
             id: manifest.id || '',
@@ -125,14 +154,14 @@ export default function AdminDashboard() {
             visibility: 'public',
 
             // NEW: Preserve dockerDefaults from manifest
-            dockerDefaults: manifest.dockerDefaults,
+            dockerDefaults: clonedDockerDefaults,
 
             // Legacy fields
             transport: manifest.transport,
             port: manifest.port,
             sseEndpoint: manifest.sseEndpoint,
             needsFileAccess: manifest.needsFileAccess,
-            volumeMounts: manifest.volumeMounts,
+            ...(hasVolumeMounts ? { volumeMounts: manifest.volumeMounts } : {}),
             featured: false
           });
           setShowCreateForm(true);
