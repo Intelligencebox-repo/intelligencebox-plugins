@@ -54,9 +54,9 @@ def create_gmail_server() -> Server:
         return [
 
             # Tool autenticazione
-            Tool(name="start-authentication", description="Inizia il flusso di autorizzazione per collegare un account Google e restituisce l'URL a cui l'utente deve accedere. Prima di farlo controlla se l'utente è già autenticato, e nel caso restituisce un messaggio per confermarlo.", inputSchema={"type": "object", "properties": {}}),
-            Tool(name="complete-authentication", description="Completa l'autenticazione estraendo il codice dall'URL di reindirizzamento fornito da Google.", inputSchema=CompleteAuthParams.model_json_schema()),
-            Tool(name="logout", description="Disconnette l'account Google eliminando il token di accesso salvato. Sarà necessaria una nuova autenticazione per riutilizzare il tool.", inputSchema={"type": "object", "properties": {}}),
+            Tool(name="start-authentication", description="Tool per l'autenticazione. Controlla se l'utente è già autenticato. Se non lo è, restituisce l'URL di Google per il consenso. A questo punto il modello deve inviare questo url al'utente per procedere con l'autenticazione. Se l'utente è già autenticato, restituisce un messaggio di conferma.", inputSchema={"type": "object", "properties": {}}),
+            Tool(name="complete-authentication", description="Tool per finalizzare l'autenticazione. Riceve l'URL completo di reindirizzamento fornito dall'utente, estrae il codice di autorizzazione e salva il token per abilitare l'uso degli altri tool.", inputSchema=CompleteAuthParams.model_json_schema()),
+            Tool(name="logout", description="Tool per disconnettere l'account Google dell'utente. Cancella il token di accesso salvato. Dopo aver usato questo tool, l'utente dovrà eseguire di nuovo l'autenticazione per usare le altre funzioni.", inputSchema={"type": "object", "properties": {}}),
 
             # Tool Gmail
             Tool(name="send-email", description="Invia una email tramite Gmail.", inputSchema=SendEmailParams.model_json_schema()),
