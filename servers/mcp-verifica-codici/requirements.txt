@@ -2,15 +2,17 @@
 #    uv pip compile pyproject.toml -o requirements.txt
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.13.1
+aiohttp==3.13.2
     # via verifica-codici (pyproject.toml)
 aiosignal==1.4.0
     # via aiohttp
+aistudio-sdk==0.3.8
+    # via paddlex
 annotated-types==0.7.0
     # via
     #   verifica-codici (pyproject.toml)
     #   pydantic
-anyio==4.11.0
+anyio==4.10.0
     # via
     #   verifica-codici (pyproject.toml)
     #   httpx
@@ -18,112 +20,220 @@ anyio==4.11.0
     #   openai
     #   sse-starlette
     #   starlette
-attrs==25.4.0
+attrs==25.3.0
     # via
     #   verifica-codici (pyproject.toml)
     #   aiohttp
     #   jsonschema
     #   referencing
-certifi==2025.10.5
+bce-python-sdk==0.9.49
+    # via aistudio-sdk
+certifi==2025.8.3
     # via
     #   httpcore
     #   httpx
+    #   requests
 cffi==2.0.0
     # via cryptography
-charset-normalizer==3.4.3
-    # via pdfminer-six
+chardet==5.2.0
+    # via paddlex
+charset-normalizer==3.4.4
+    # via
+    #   pdfminer-six
+    #   requests
 click==8.3.0
-    # via uvicorn
-cryptography==46.0.2
+    # via
+    #   aistudio-sdk
+    #   typer-slim
+    #   uvicorn
+colorama==0.4.6
+    # via
+    #   click
+    #   colorlog
+    #   tqdm
+colorlog==6.10.1
+    # via paddlex
+cryptography==46.0.3
     # via pdfminer-six
 distro==1.9.0
     # via openai
+filelock==3.20.0
+    # via
+    #   huggingface-hub
+    #   modelscope
+    #   paddlex
 frozenlist==1.8.0
     # via
     #   aiohttp
     #   aiosignal
+fsspec==2025.10.0
+    # via huggingface-hub
+future==1.0.0
+    # via bce-python-sdk
 h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
+hf-xet==1.2.0
+    # via huggingface-hub
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via
+    #   huggingface-hub
     #   mcp
     #   openai
-httpx-sse==0.4.3
+    #   paddlepaddle
+httpx-sse==0.4.1
     # via mcp
-idna==3.11
+huggingface-hub==1.1.1
+    # via paddlex
+idna==3.10
     # via
     #   verifica-codici (pyproject.toml)
     #   anyio
     #   httpx
+    #   requests
     #   yarl
-jiter==0.11.0
+imagesize==1.4.1
+    # via paddlex
+jiter==0.11.1
     # via openai
 jsonschema==4.25.1
     # via verifica-codici (pyproject.toml)
-jsonschema-specifications==2025.9.1
+jsonschema-specifications==2025.4.1
     # via
     #   verifica-codici (pyproject.toml)
     #   jsonschema
 mcp==1.1.3
     # via verifica-codici (pyproject.toml)
+modelscope==1.31.0
+    # via paddlex
 multidict==6.7.0
     # via
     #   aiohttp
     #   yarl
+networkx==3.5
+    # via paddlepaddle
 numpy==2.2.6
     # via
     #   verifica-codici (pyproject.toml)
+    #   opencv-contrib-python
     #   opencv-python
-openai==2.3.0
+    #   opt-einsum
+    #   paddlepaddle
+    #   paddlex
+    #   pandas
+    #   shapely
+openai==2.7.1
     # via verifica-codici (pyproject.toml)
+opencv-contrib-python==4.10.0.84
+    # via paddlex
 opencv-python==4.12.0.88
     # via verifica-codici (pyproject.toml)
+opt-einsum==3.3.0
+    # via paddlepaddle
 packaging==25.0
-    # via pytesseract
+    # via
+    #   huggingface-hub
+    #   paddlex
+paddleocr==3.3.1
+    # via verifica-codici (pyproject.toml)
+paddlepaddle==3.2.1
+    # via verifica-codici (pyproject.toml)
+paddlex==3.3.8
+    # via paddleocr
+pandas==2.3.3
+    # via paddlex
 pdfminer-six==20250506
     # via pdfplumber
 pdfplumber==0.11.7
     # via verifica-codici (pyproject.toml)
-pillow==11.3.0
+pillow==12.0.0
     # via
     #   verifica-codici (pyproject.toml)
+    #   paddlepaddle
+    #   paddlex
     #   pdfplumber
-    #   pytesseract
+prettytable==3.16.0
+    # via
+    #   aistudio-sdk
+    #   paddlex
 propcache==0.4.1
     # via
     #   aiohttp
     #   yarl
+protobuf==6.33.0
+    # via paddlepaddle
+psutil==7.1.3
+    # via aistudio-sdk
+py-cpuinfo==9.0.0
+    # via paddlex
+pyclipper==1.3.0.post6
+    # via paddlex
 pycparser==2.23
     # via cffi
+pycryptodome==3.23.0
+    # via bce-python-sdk
 pydantic==2.8.2
     # via
     #   verifica-codici (pyproject.toml)
     #   mcp
     #   openai
+    #   paddlex
 pydantic-core==2.20.1
     # via
     #   verifica-codici (pyproject.toml)
     #   pydantic
-pypdfium2==4.30.0
-    # via pdfplumber
-pytesseract==0.3.13
+pypdfium2==5.0.0
+    # via
+    #   paddlex
+    #   pdfplumber
+python-bidi==0.6.7
+    # via paddlex
+python-dateutil==2.9.0.post0
+    # via pandas
+python-dotenv==1.2.1
     # via verifica-codici (pyproject.toml)
-python-dotenv==1.1.1
-    # via verifica-codici (pyproject.toml)
+pytz==2025.2
+    # via pandas
+pyyaml==6.0.2
+    # via
+    #   huggingface-hub
+    #   paddleocr
+    #   paddlex
 referencing==0.36.2
     # via
     #   verifica-codici (pyproject.toml)
     #   jsonschema
     #   jsonschema-specifications
+requests==2.32.5
+    # via
+    #   aistudio-sdk
+    #   modelscope
+    #   paddleocr
+    #   paddlex
 rpds-py==0.27.1
     # via
     #   verifica-codici (pyproject.toml)
     #   jsonschema
     #   referencing
+ruamel-yaml==0.18.16
+    # via paddlex
+ruamel-yaml-clib==0.2.14
+    # via ruamel-yaml
+safetensors==0.6.2
+    # via paddlepaddle
+setuptools==80.9.0
+    # via modelscope
+shapely==2.1.2
+    # via paddlex
+shellingham==1.5.4
+    # via huggingface-hub
+six==1.17.0
+    # via
+    #   bce-python-sdk
+    #   python-dateutil
 sniffio==1.3.1
     # via
     #   verifica-codici (pyproject.toml)
@@ -133,23 +243,40 @@ sse-starlette==3.0.2
     # via
     #   verifica-codici (pyproject.toml)
     #   mcp
-starlette==0.48.0
+starlette==0.47.3
     # via
     #   verifica-codici (pyproject.toml)
     #   mcp
 tqdm==4.67.1
-    # via openai
+    # via
+    #   aistudio-sdk
+    #   huggingface-hub
+    #   modelscope
+    #   openai
+typer-slim==0.20.0
+    # via huggingface-hub
 typing-extensions==4.15.0
     # via
     #   verifica-codici (pyproject.toml)
-    #   aiosignal
-    #   anyio
+    #   huggingface-hub
     #   openai
+    #   paddleocr
+    #   paddlepaddle
+    #   paddlex
     #   pydantic
     #   pydantic-core
-    #   referencing
-    #   starlette
+    #   typer-slim
+tzdata==2025.2
+    # via pandas
+ujson==5.11.0
+    # via paddlex
+urllib3==2.5.0
+    # via
+    #   modelscope
+    #   requests
 uvicorn==0.38.0
     # via verifica-codici (pyproject.toml)
+wcwidth==0.2.14
+    # via prettytable
 yarl==1.22.0
     # via aiohttp

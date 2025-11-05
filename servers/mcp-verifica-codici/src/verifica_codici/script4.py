@@ -1,28 +1,26 @@
-import pytesseract
-from PIL import Image
+from paddleocr import PaddleOCR
 import logging
+import re
 
-# Configure logging
+# Configura il logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- INIZIALIZZAZIONE DEL MODELLO PADDLEOCR ---
+logger.info("Caricamento del modello PaddleOCR in memoria...")
 try:
-    # Prova a ottenere e loggare la versione di Tesseract installata
-    tesseract_version = pytesseract.get_tesseract_version()
-    logger.info(f"Modulo script4.py caricato. Versione Tesseract trovata: {tesseract_version}")
-except pytesseract.TesseractNotFoundError:
-    # Se Tesseract non è installato nel Dockerfile
-    logger.error("="*50)
-    logger.error("ERRORE CRITICO: Tesseract non è stato trovato nel PATH del container.")
-    logger.error("Controllare che 'tesseract-ocr' sia installato nel Dockerfile.")
-    logger.error("="*50)
+    # Usiamo 'en' (inglese) per codici alfanumerici.
+    # Disabilitiamo il classificatore di angoli e i log di Paddle.
+    ocr_engine = PaddleOCR(lang='en', use_angle_cls=False, show_log=False)
+    logger.info("Modulo script4.py caricato. Motore PaddleOCR inizializzato.")
 except Exception as e:
-    logger.error(f"Errore sconosciuto durante l'inizializzazione di Tesseract: {e}")
+    logger.critical(f"ERRORE CRITICO: Impossibile inizializzare PaddleOCR: {e}")
+    ocr_engine = None
 
 
 def estrai_codice_immagine(immagine_opencv):
     """
-    Esegue l'OCR con Tesseract su un'immagine fornita in formato OpenCV.
+    Esegue l'OCR con PaddleOCR su un'immagine fornita in formato OpenCV.
 
     Args:
         immagine_opencv (numpy.ndarray): I dati dell'immagine pulita.
@@ -30,19 +28,34 @@ def estrai_codice_immagine(immagine_opencv):
     Returns:
         str: La stringa di testo estratta dall'immagine.
     """
-    # Configurazioni per Tesseract
-    TESSERACT_CONFIG = '--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
-
-    logger.info(f"Configurazione Tesseract utilizzata: {TESSERACT_CONFIG}")
+    logger.info("--- Avvio Step 4: Estrazione Codice con PaddleOCR ---")
+    
+    if ocr_engine is None:
+        logger.error("ERRORE: Motore PaddleOCR non inizializzato.")
+        return "ERRORE_OCR_INIT"
 
     try:
-        # Esegui l'OCR direttamente sull'oggetto immagine OpenCV
-        testo_estratto = pytesseract.image_to_string(immagine_opencv, config=TESSERACT_CONFIG)
-        logger.info(f"Testo estratto da Tesseract: {testo_estratto}")
+        # 1. Esegui l'OCR
+        result = ocr_engine.ocr(immagine_opencv, cls=False)
+        
+        # 2. Estrai e formatta il testo
+        # PaddleOCR restituisce: [ [[box], ('testo', conf)], ... ]
+        if result and result[0]:
+            # Estrai solo il testo da ogni rilevamento e uniscilo
+            text_parts = [line[1][0] for line in result[0]]
+            testo_estratto_raw = " ".join(text_parts)
+        else:
+            testo_estratto_raw = ""
 
-        # Restituisce il testo estratto, pulito da eventuali spazi bianchi iniziali/finali
-        return testo_estratto.strip()
+        logger.info(f"Testo grezzo estratto da PaddleOCR: '{testo_estratto_raw}'")
+        
+        # 3. Pulizia finale (rimuove spazi, normalizza trattini)
+        testo_pulito = re.sub(r'[\s\n\r]+', '', testo_estratto_raw)
+        testo_normalizzato = re.sub(r'-+', '-', testo_pulito).strip('-').strip()
+        
+        logger.info(f"Testo pulito restituito: '{testo_normalizzato}'")
+        return testo_normalizzato
 
     except Exception as e:
-        print(f"\n[!] ERRORE durante l'esecuzione di Tesseract: {e}")
+        logger.error(f"ERRORE durante l'esecuzione di PaddleOCR: {e}")
         return "ERRORE_OCR"

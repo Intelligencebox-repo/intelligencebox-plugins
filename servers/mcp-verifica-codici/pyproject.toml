@@ -35,7 +35,8 @@ dependencies = [
     "Pillow",
 
     # Per l'OCR
-    "pytesseract",
+    "paddleocr",
+    "paddlepaddle",
 
     # Per le chiamate all'AI e la gestione delle chiavi
     "openai",

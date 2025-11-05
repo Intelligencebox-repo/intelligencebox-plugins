@@ -59,11 +59,11 @@ def create_gmail_server() -> Server:
             Tool(name="logout", description="Tool per disconnettere l'account Google dell'utente. Cancella il token di accesso salvato. Dopo aver usato questo tool, l'utente dovrà eseguire di nuovo l'autenticazione per usare le altre funzioni.", inputSchema={"type": "object", "properties": {}}),
 
             # Tool Gmail
-            Tool(name="send-email", description="Invia una email tramite Gmail.", inputSchema=SendEmailParams.model_json_schema()),
-            Tool(name="search-emails", description="Cerca email in Gmail.", inputSchema=SearchEmailsParams.model_json_schema()),
-            Tool(name="get-email-details", description="Ottieni i dettagli di una email tramite ID.", inputSchema=EmailIdParams.model_json_schema()),
-            Tool(name="get-email-body", description="Ottieni il corpo di una email tramite ID.", inputSchema=EmailIdParams.model_json_schema()),
-            Tool(name="delete-email", description="Cancella una email tramite ID.", inputSchema=EmailIdParams.model_json_schema()),
+            Tool(name="send-email", description="Invia una email tramite Gmail. Richiede i parametri 'to', 'subject', e 'body'.", inputSchema=SendEmailParams.model_json_schema()),
+            Tool(name="search-emails", description="Cerca email in Gmail. Permette di filtrare per 'query' (es. 'from:mario@rossi.it'), 'label' (es. 'INBOX'), e 'max_results'. Restituisce un elenco di email con i loro dettagli, incluso il 'msg_id' univoco necessario per gli altri tool.", inputSchema=SearchEmailsParams.model_json_schema()),
+            Tool(name="get-email-details", description="Tool per ottenere i metadati di una email specifica, dato il suo 'msg_id'. Restituisce mittente, oggetto, data, snippet, ma non il corpo completo del messaggio.", inputSchema=EmailIdParams.model_json_schema()),
+            Tool(name="get-email-body", description="Tool per estrarre e leggere il corpo completo (in formato testo) di una email specifica, dato il suo 'msg_id'. Usalo quando l'utente chiede di leggere il contenuto di un messaggio.", inputSchema=EmailIdParams.model_json_schema()),
+            Tool(name="delete-email", description="Tool per cancellare un messaggio di posta specifico, dato il suo 'msg_id'.", inputSchema=EmailIdParams.model_json_schema()),
         ]
 
     # --- GESTIONE DELLA CHIAMATA AI TOOL ---
