@@ -59,13 +59,7 @@ function selectDockerDefaults(mcp: any, manifest: ManifestShape | null) {
     mcp?.needsFileAccess ??
     false;
 
-  const volumeMounts =
-    manifestDefaults.volumeMounts ??
-    storedDefaults.volumeMounts ??
-    mcp?.volumeMounts ??
-    {};
-
-  return {
+  const dockerDefaults: Record<string, any> = {
     containerPort:
       manifestDefaults.containerPort ??
       storedDefaults.containerPort ??
@@ -87,7 +81,6 @@ function selectDockerDefaults(mcp: any, manifest: ManifestShape | null) {
       storedDefaults.defaultHostPort ??
       mcp?.port,
     needsFileAccess,
-    volumeMounts,
     resources:
       manifestDefaults.resources ??
       storedDefaults.resources ?? {
@@ -95,6 +88,17 @@ function selectDockerDefaults(mcp: any, manifest: ManifestShape | null) {
         cpus: '0.5'
       }
   };
+
+  const volumeMounts =
+    manifestDefaults.volumeMounts ??
+    storedDefaults.volumeMounts ??
+    mcp?.volumeMounts;
+
+  if (volumeMounts !== undefined && volumeMounts !== null) {
+    dockerDefaults.volumeMounts = volumeMounts;
+  }
+
+  return dockerDefaults;
 }
 
 /**
@@ -104,7 +108,7 @@ function selectDockerDefaults(mcp: any, manifest: ManifestShape | null) {
 export function mergeMcpWithManifest(mcp: any, manifest: ManifestShape | null) {
   const dockerDefaults = selectDockerDefaults(mcp, manifest);
 
-  return {
+  const merged = {
     ...mcp,
     ...(manifest ?? {}),
     dockerDefaults,
@@ -125,7 +129,14 @@ export function mergeMcpWithManifest(mcp: any, manifest: ManifestShape | null) {
     author: manifest?.author ?? mcp.author,
     documentationUrl: manifest?.documentationUrl ?? mcp.documentationUrl,
     features: manifest?.features ?? mcp.features,
-    needsFileAccess: dockerDefaults.needsFileAccess,
-    volumeMounts: dockerDefaults.volumeMounts
+    needsFileAccess: dockerDefaults.needsFileAccess
   };
+
+  if (Object.prototype.hasOwnProperty.call(dockerDefaults, 'volumeMounts')) {
+    merged.volumeMounts = dockerDefaults.volumeMounts;
+  } else {
+    delete merged.volumeMounts;
+  }
+
+  return merged;
 }

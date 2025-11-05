@@ -25,14 +25,34 @@ export async function PUT(
       ...body,
       updatedAt: new Date()
     };
+    const unset: Record<string, ''> = {};
+
+    if (!Object.prototype.hasOwnProperty.call(body, 'volumeMounts')) {
+      unset.volumeMounts = '';
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'volumeMounts')) {
+      if (updates.volumeMounts === null || updates.volumeMounts === undefined) {
+        unset.volumeMounts = '';
+        delete updates.volumeMounts;
+      }
+    }
     
     delete updates._id;
     delete updates.id;
     delete updates.createdAt;
     
+    const updateDoc: Record<string, any> = {
+      $set: updates
+    };
+
+    if (Object.keys(unset).length > 0) {
+      updateDoc.$unset = unset;
+    }
+
     const result = await collection.findOneAndUpdate(
       { id: params.id },
-      { $set: updates },
+      updateDoc,
       { returnDocument: 'after' }
     );
     
