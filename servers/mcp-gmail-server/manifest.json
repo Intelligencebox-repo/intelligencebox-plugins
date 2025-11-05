@@ -28,7 +28,7 @@
     "protocol": "tcp",
     "needsPortMapping": true,
     "defaultHostPort": 8081,
-    "needsFileAccess": true,
+    "needsFileAccess": false,
     "resources": {
       "memory": "512m",
       "cpus": "0.5"
