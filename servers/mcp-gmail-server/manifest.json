@@ -29,9 +29,6 @@
     "needsPortMapping": true,
     "defaultHostPort": 8081,
     "needsFileAccess": true,
-    "volumeMounts": {
-      "data": "/data"
-    },
     "resources": {
       "memory": "512m",
       "cpus": "0.5"
