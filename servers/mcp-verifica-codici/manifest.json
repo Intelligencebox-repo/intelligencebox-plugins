@@ -16,6 +16,24 @@
       "description": "URL endpoint per RAG search dei documenti nella collection",
       "required": true,
       "default": "http://host.docker.internal:8090/query"
+    },
+    "OLLAMA_URL": {
+      "type": "string",
+      "description": "Endpoint HTTP per il modello VLM servito da Ollama (es. http://localhost:11434 in sviluppo, http://host.docker.internal:11434 in container).",
+      "required": false,
+      "default": "http://host.docker.internal:11434"
+    },
+    "OLLAMA_VLM_MODEL": {
+      "type": "string",
+      "description": "Nome del modello VLM da usare con Ollama per l'estrazione dei codici.",
+      "required": false,
+      "default": "qwen3-vl:4b"
+    },
+    "OLLAMA_TIMEOUT": {
+      "type": "number",
+      "description": "Timeout (in secondi) per la richiesta al modello VLM Ollama.",
+      "required": false,
+      "default": 60
     }
   },
   "volumeMountsConfig": {

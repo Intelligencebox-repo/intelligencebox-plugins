@@ -48,25 +48,21 @@ async def handle_validate_folders(arguments: dict) -> list[TextContent]:
         list_parser = MasterListParser()
 
         # Estrai i codici dai documenti nella cartella
-        print(f"[INFO] Scansione documenti in: {params.documents_folder}", flush=True)
-        sys.stdout.flush()
+        print(f"[INFO] Scansione documenti in: {params.documents_folder}", file=sys.stderr, flush=True)
         extracted_codes = await asyncio.to_thread(
             code_extractor.extract_from_folder,
             params.documents_folder,
             recursive=False
         )
-        print(f"[INFO] Estrazione completata: {len(extracted_codes)} file processati", flush=True)
-        sys.stdout.flush()
+        print(f"[INFO] Estrazione completata: {len(extracted_codes)} file processati", file=sys.stderr, flush=True)
 
         # Estrai l'elenco dei codici attesi dalla master list
-        print(f"[INFO] Parsing master list da: {params.master_list_pdf}", flush=True)
-        sys.stdout.flush()
+        print(f"[INFO] Parsing master list da: {params.master_list_pdf}", file=sys.stderr, flush=True)
         expected_codes = await asyncio.to_thread(
             list_parser.parse_master_list,
             params.master_list_pdf
         )
-        print(f"[INFO] Master list parsed: {len(expected_codes)} codici attesi", flush=True)
-        sys.stdout.flush()
+        print(f"[INFO] Master list parsed: {len(expected_codes)} codici attesi", file=sys.stderr, flush=True)
 
         # Prepara i set per il confronto (filtra i None)
         extracted_set = set(code for code in extracted_codes.values() if code is not None)

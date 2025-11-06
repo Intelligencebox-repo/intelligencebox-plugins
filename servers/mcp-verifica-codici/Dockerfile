@@ -20,10 +20,6 @@ RUN apt-get update && \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download PaddleOCR models during build to avoid runtime delays
-# This downloads ~500MB of models but makes first tool call fast
-RUN python -c "from paddleocr import PaddleOCR; ocr = PaddleOCR(lang='en', use_angle_cls=True); print('PaddleOCR models pre-downloaded')"
-
 # Copia del Codice Sorgente
 COPY ./src ./src
 
