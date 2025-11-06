@@ -13,10 +13,43 @@ from paddleocr import PaddleOCR
 ocr = PaddleOCR(lang='en', use_angle_cls=True)
 
 
-class FolderCodeExtractor:
-    """Estrattore di codici document
+def translate_docker_path(path: str) -> str:
+    """
+    Traduce i percorsi Docker mount in percorsi host reali.
+    Quando il plugin gira localmente, i path /dataai/... devono essere tradotti.
 
-ali da cartelle di PDF usando PaddleOCR"""
+    Args:
+        path: Percorso potenzialmente in formato Docker mount
+
+    Returns:
+        Percorso reale sul filesystem host
+    """
+    # Se il path inizia con /dataai/, sostituisci con il path reale dall'env
+    if path.startswith('/dataai/'):
+        data_ai_path = os.environ.get('DATA_AI_PATH') or os.environ.get('FILE_DIRECTORY')
+        if data_ai_path:
+            # Rimuovi /dataai/ e aggiungi al path base
+            relative_path = path[8:]  # Rimuove '/dataai/'
+            return os.path.join(data_ai_path, relative_path)
+
+    # Se il path inizia con altri mount comuni
+    mount_mappings = {
+        '/store_image/': os.environ.get('IMAGE_DIRECTORY'),
+        '/output/': os.environ.get('OUTPUT_DIR'),
+        '/data/': os.environ.get('DATA_PATH'),
+    }
+
+    for mount_prefix, env_path in mount_mappings.items():
+        if path.startswith(mount_prefix) and env_path:
+            relative_path = path[len(mount_prefix):]
+            return os.path.join(env_path, relative_path)
+
+    # Se non è un mount Docker, restituisci il path originale
+    return path
+
+
+class FolderCodeExtractor:
+    """Estrattore di codici documentali da cartelle di PDF usando PaddleOCR"""
 
     # Pattern per il codice: es. ADRPMV02--PEDSIIE--RRC00-1
     CODE_PATTERN = r'[A-Z]{6}\d{2}\s*[-–—]+\s*[A-Z]{2}[A-Z]{2}[A-Z]{2,4}\s*[-–—]+\s*[A-Z]{1,3}\d{2}\s*[-–—]+\s*\d'
@@ -124,6 +157,10 @@ ali da cartelle di PDF usando PaddleOCR"""
         Returns:
             Dizionario {nome_file: codice} dove codice può essere None se l'estrazione fallisce
         """
+        # Traduci il path Docker in path host reale
+        folder_path = translate_docker_path(folder_path)
+        print(f"[extract_from_folder] Translated path: {folder_path}")
+
         if not os.path.exists(folder_path):
             raise FileNotFoundError(f"Cartella non trovata: {folder_path}")
 
