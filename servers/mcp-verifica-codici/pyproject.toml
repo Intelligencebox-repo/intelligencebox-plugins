@@ -2,7 +2,7 @@
 name = "verifica_codici"
 version = "0.1.0"
 description = "Un server MCP per la validazione incrociata dei codici di documenti di progetto."
-requires-python = "~=3.12"
+requires-python = ">=3.12"
 
 dependencies = [
     # Dipendenze comuni per MCP e Pydantic

@@ -3,13 +3,15 @@
   "name": "Verifica Codici",
   "description": "Un server MCP che esegue una validazione incrociata tra un elenco di documenti e i codici identificativi presenti all'interno di ogni singolo file. Supporta sia verifica tramite RAG che validazione diretta di cartelle.",
   "author": "intelligencebox",
-  "version": "1.5.0",
+  "version": "1.5.0-dev",
   "icon": "🔎",
   "category": "business",
   "tags": ["verifica codici", "validazione"],
-  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-verifica-codici:latest",
+  "useLocal": true,
+  "localPath": "/Users/pineapp/official-project/intelligencebox-plugins/servers/mcp-verifica-codici",
   "transport": "stdio",
-  "entrypoint": ["python", "-m", "verifica_codici"],
+  "command": "uv",
+  "args": ["run", "python", "-m", "verifica_codici"],
   "configSchema": {
     "RAG_ENDPOINT": {
       "type": "string",
