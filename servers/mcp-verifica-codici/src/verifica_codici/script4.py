@@ -1,13 +1,14 @@
-from paddleocr import PaddleOCR
 import cv2
-
-ocr = PaddleOCR(lang='en', use_angle_cls=True)
+from .code_extractor_folders import get_ocr
 
 def estrai_codice_immagine(img):
     """
     Versione con debug: stampa tutto ciò che PaddleOCR trova.
     """
     try:
+        # Get the lazy-loaded OCR instance
+        ocr = get_ocr()
+
         # PaddleOCR si aspetta immagini RGB (non BGR come OpenCV)
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
