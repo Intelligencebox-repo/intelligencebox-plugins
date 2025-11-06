@@ -129,7 +129,13 @@ export function mergeMcpWithManifest(mcp: any, manifest: ManifestShape | null) {
     author: manifest?.author ?? mcp.author,
     documentationUrl: manifest?.documentationUrl ?? mcp.documentationUrl,
     features: manifest?.features ?? mcp.features,
-    needsFileAccess: dockerDefaults.needsFileAccess
+    needsFileAccess: dockerDefaults.needsFileAccess,
+
+    // Local execution fields
+    useLocal: manifest?.useLocal ?? mcp.useLocal ?? false,
+    localPath: manifest?.localPath ?? mcp.localPath,
+    command: manifest?.command ?? mcp.command,
+    args: manifest?.args ?? mcp.args
   };
 
   if (Object.prototype.hasOwnProperty.call(dockerDefaults, 'volumeMounts')) {

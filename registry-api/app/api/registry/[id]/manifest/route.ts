@@ -49,7 +49,11 @@ export async function GET(
       port: merged.port,
       sseEndpoint: merged.sseEndpoint,
       needsFileAccess: merged.needsFileAccess,
-      volumeMounts: merged.volumeMounts
+      volumeMounts: merged.volumeMounts,
+      useLocal: merged.useLocal,
+      localPath: merged.localPath,
+      command: merged.command,
+      args: merged.args
     };
 
     return NextResponse.json({
