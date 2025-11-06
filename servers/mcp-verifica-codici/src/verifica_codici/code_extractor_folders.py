@@ -4,6 +4,7 @@ Questo modulo lavora direttamente con cartelle di PDF.
 """
 
 import os
+import sys
 from typing import Optional, Dict
 from pdf2image import convert_from_path
 import re
@@ -163,10 +164,12 @@ ali da cartelle di PDF usando PaddleOCR"""
                             results[relative_path] = None
         else:
             # Scansione solo nella cartella corrente
-            for filename in os.listdir(folder_path):
-                if not filename.lower().endswith('.pdf'):
-                    continue
+            pdf_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.pdf')]
+            total_files = len(pdf_files)
+            print(f"[INFO] Trovati {total_files} file PDF da processare", flush=True)
+            sys.stdout.flush()
 
+            for idx, filename in enumerate(pdf_files, 1):
                 pdf_path = os.path.join(folder_path, filename)
 
                 # Salta sottocartelle
@@ -174,10 +177,15 @@ ali da cartelle di PDF usando PaddleOCR"""
                     continue
 
                 try:
+                    print(f"[INFO] Processando {idx}/{total_files}: {filename}...", flush=True)
+                    sys.stdout.flush()
                     code = self.extract_from_pdf(pdf_path)
                     results[filename] = code
+                    print(f"[INFO] ✓ {filename}: {code if code else 'NESSUN_CODICE'}", flush=True)
+                    sys.stdout.flush()
                 except Exception as e:
-                    print(f"Errore nell'elaborazione di {filename}: {str(e)}")
+                    print(f"[ERROR] Errore nell'elaborazione di {filename}: {str(e)}", flush=True)
+                    sys.stdout.flush()
                     results[filename] = None
 
         return results
