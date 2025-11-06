@@ -9,8 +9,18 @@ from pdf2image import convert_from_path
 import re
 from paddleocr import PaddleOCR
 
-# Inizializza PaddleOCR una volta
-ocr = PaddleOCR(lang='en', use_angle_cls=True)
+# OCR instance will be lazy-loaded on first use
+_ocr_instance = None
+
+
+def get_ocr():
+    """Get or create the global PaddleOCR instance (lazy loading)"""
+    global _ocr_instance
+    if _ocr_instance is None:
+        print("🔧 Initializing PaddleOCR (this may take a moment)...")
+        _ocr_instance = PaddleOCR(lang='en', use_angle_cls=True)
+        print("✓ PaddleOCR initialized successfully")
+    return _ocr_instance
 
 
 class FolderCodeExtractor:
@@ -23,7 +33,14 @@ ali da cartelle di PDF usando PaddleOCR"""
 
     def __init__(self):
         """Inizializza l'estrattore"""
-        self.ocr = ocr
+        self.ocr = None  # Will be lazy-loaded on first use
+
+    @property
+    def _ocr(self):
+        """Lazy load OCR instance when first accessed"""
+        if self.ocr is None:
+            self.ocr = get_ocr()
+        return self.ocr
 
     def extract_from_pdf(self, pdf_path: str) -> Optional[str]:
         """
@@ -65,7 +82,7 @@ ali da cartelle di PDF usando PaddleOCR"""
                 img_bgr = img_array
 
             # Esegui OCR
-            result = self.ocr.ocr(img_bgr)
+            result = self._ocr.ocr(img_bgr)
 
             if not result or not result[0]:
                 return None
