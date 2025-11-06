@@ -7,7 +7,6 @@ import os
 from typing import Optional, Dict
 from pdf2image import convert_from_path
 import re
-from paddleocr import PaddleOCR
 
 # OCR instance will be lazy-loaded on first use
 _ocr_instance = None
@@ -18,6 +17,8 @@ def get_ocr():
     global _ocr_instance
     if _ocr_instance is None:
         print("🔧 Initializing PaddleOCR (this may take a moment)...")
+        # Import PaddleOCR only when needed to avoid loading models at startup
+        from paddleocr import PaddleOCR
         _ocr_instance = PaddleOCR(lang='en', use_angle_cls=True)
         print("✓ PaddleOCR initialized successfully")
     return _ocr_instance
