@@ -46,11 +46,6 @@ click==8.3.0
     #   aistudio-sdk
     #   typer-slim
     #   uvicorn
-colorama==0.4.6
-    # via
-    #   click
-    #   colorlog
-    #   tqdm
 colorlog==6.10.1
     # via paddlex
 cryptography==46.0.3
@@ -145,6 +140,8 @@ paddlex==3.3.8
     # via paddleocr
 pandas==2.3.3
     # via paddlex
+pdf2image==1.17.0
+    # via verifica-codici (pyproject.toml)
 pdfminer-six==20250506
     # via pdfplumber
 pdfplumber==0.11.7
@@ -154,6 +151,7 @@ pillow==12.0.0
     #   verifica-codici (pyproject.toml)
     #   paddlepaddle
     #   paddlex
+    #   pdf2image
     #   pdfplumber
 prettytable==3.16.0
     # via
@@ -185,6 +183,8 @@ pydantic-core==2.20.1
     # via
     #   verifica-codici (pyproject.toml)
     #   pydantic
+pymupdf==1.26.6
+    # via verifica-codici (pyproject.toml)
 pypdfium2==5.0.0
     # via
     #   paddlex
@@ -258,6 +258,8 @@ typer-slim==0.20.0
 typing-extensions==4.15.0
     # via
     #   verifica-codici (pyproject.toml)
+    #   aiosignal
+    #   anyio
     #   huggingface-hub
     #   openai
     #   paddleocr
@@ -265,6 +267,8 @@ typing-extensions==4.15.0
     #   paddlex
     #   pydantic
     #   pydantic-core
+    #   referencing
+    #   starlette
     #   typer-slim
 tzdata==2025.2
     # via pandas

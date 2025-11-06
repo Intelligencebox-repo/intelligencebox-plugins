@@ -28,6 +28,8 @@ dependencies = [
     # === DIPENDENZE SPECIFICHE PER QUESTO TOOL ===
     # Per l'analisi dei PDF
     "pdfplumber",
+    "PyMuPDF",
+    "pdf2image",
 
     # Per l'elaborazione delle immagini
     "opencv-python",

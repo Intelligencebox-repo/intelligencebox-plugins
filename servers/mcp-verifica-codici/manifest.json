@@ -1,9 +1,9 @@
 {
   "id": "verifica-codici",
   "name": "Verifica Codici",
-  "description": "Un server MCP che esegue una validazione incrociata tra un elenco di documenti e i codici identificativi presenti all'interno di ogni singolo file.",
+  "description": "Un server MCP che esegue una validazione incrociata tra un elenco di documenti e i codici identificativi presenti all'interno di ogni singolo file. Supporta sia verifica tramite RAG che validazione diretta di cartelle.",
   "author": "intelligencebox",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "icon": "🔎",
   "category": "business",
   "tags": ["verifica codici", "validazione"],

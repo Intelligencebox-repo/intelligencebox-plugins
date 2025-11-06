@@ -4,10 +4,12 @@ FROM python:3.12-slim
 # Cartella di Lavoro
 WORKDIR /app
 
-# Installa Tesseract e il pacchetto per la lingua italiana (non si sa mai)
+# Installa dipendenze di sistema per OpenCV e PDF processing
 RUN apt-get update && \
-    apt-get install -y libgl1 && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y \
+    libgl1 \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copia e Installazione delle Dipendenze Python
 COPY requirements.txt ./
