@@ -6,7 +6,6 @@ import re
 import os
 from typing import List
 import fitz  # PyMuPDF
-from .code_extractor_folders import translate_docker_path
 
 
 class MasterListParser:
@@ -29,10 +28,6 @@ class MasterListParser:
         Returns:
             Lista di codici documentali normalizzati
         """
-        # Traduci il path Docker in path host reale
-        pdf_path = translate_docker_path(pdf_path)
-        print(f"[parse_master_list] Translated path: {pdf_path}")
-
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF master list non trovato: {pdf_path}")
 
