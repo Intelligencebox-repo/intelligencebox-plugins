@@ -58,11 +58,12 @@ ali da cartelle di PDF usando PaddleOCR"""
 
         try:
             # Converti la prima pagina in immagine
+            # Using 150 DPI for faster processing while maintaining OCR accuracy
             images = convert_from_path(
                 pdf_path,
                 first_page=1,
                 last_page=1,
-                dpi=300
+                dpi=150
             )
 
             if not images:
