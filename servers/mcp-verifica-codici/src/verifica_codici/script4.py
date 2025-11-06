@@ -1,40 +1,23 @@
 import cv2
-from .code_extractor_folders import get_ocr
+from .code_extractor_folders import FolderCodeExtractor
+
+_folder_extractor = FolderCodeExtractor()
 
 def estrai_codice_immagine(img):
     """
-    Versione con debug: stampa tutto ciò che PaddleOCR trova.
+    Versione aggiornata: utilizza il modello VLM di Ollama invece di PaddleOCR.
     """
     try:
-        # Get the lazy-loaded OCR instance
-        ocr = get_ocr()
-
-        # PaddleOCR si aspetta immagini RGB (non BGR come OpenCV)
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        codice = _folder_extractor.extract_code_with_vlm(img_rgb)
 
-        result = ocr.ocr(img_rgb)
-        if not result or not result[0]:
-            print("   [!] Nessun testo riconosciuto.")
-            return "ERRORE_OCR"
+        if codice:
+            print(f"   [DEBUG] Codice estratto via VLM: '{codice}'")
+            return codice
 
-        print("   [DEBUG] Testi trovati:")
-        testi = []
-        for line in result[0]:
-            text, conf = line[1]
-            print(f"      -> '{text}'  (conf={conf:.2f})")
-            if text.strip():
-                testi.append(text.strip())
-
-        if not testi:
-            return "ERRORE_OCR"
-
-        # Prende il testo più lungo
-        codice = max(testi, key=len)
-        codice = codice.replace(" ", "").replace("\n", "")
-
-        print(f"   [DEBUG] Codice scelto: '{codice}'")
-        return codice if codice else "ERRORE_OCR"
+        print("   [!] Nessun codice riconosciuto dal modello VLM.")
+        return "ERRORE_OCR"
 
     except Exception as e:
-        print(f"[!] Errore in estrai_codice_immagine: {e}")
+        print(f"[!] Errore in estrai_codice_immagine con VLM: {e}")
         return "ERRORE_OCR"

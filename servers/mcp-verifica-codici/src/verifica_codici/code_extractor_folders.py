@@ -7,9 +7,11 @@ import os
 import sys
 import time
 import base64
+import json
 from io import BytesIO
 from typing import Optional, Dict
 from pdf2image import convert_from_path
+from PIL import Image, ImageOps, ImageEnhance
 import re
 import requests
 
@@ -23,7 +25,8 @@ class FolderCodeExtractor:
     """Estrattore di codici documentali da cartelle di PDF usando un modello VLM"""
 
     # Pattern per il codice: es. ADRPMV02--PEDSIIE--RRC00-1
-    CODE_PATTERN = r'[A-Z]{6}\d{2}\s*[-–—]+\s*[A-Z]{2}[A-Z]{2}[A-Z]{2,4}\s*[-–—]+\s*[A-Z]{1,3}\d{2}\s*[-–—]+\s*\d'
+    CODE_REGEX = re.compile(r'^[A-Z]{6}\d{2}-[A-Z]{4,12}-[A-Z]{2,5}\d{2}-\d$')
+    CODE_IN_TEXT_REGEX = re.compile(r'([A-Z]{6}\d{2})-([A-Z]{4,12})-([A-Z]{2,5}\d{2})-(\d)')
 
     def __init__(self):
         """Inizializza l'estrattore"""
@@ -43,10 +46,32 @@ class FolderCodeExtractor:
             raise FileNotFoundError(f"PDF non trovato: {pdf_path}")
 
         try:
-            # Converti la prima pagina in immagine
+            crop_box_env = os.getenv("CODE_CROP_BOX")
+            if crop_box_env:
+                try:
+                    crop_box = tuple(float(v.strip()) for v in crop_box_env.split(","))
+                    if len(crop_box) != 4:
+                        raise ValueError
+                except ValueError:
+                    print(f"[WARN] Invalid CODE_CROP_BOX value '{crop_box_env}', falling back to default.", file=sys.stderr, flush=True)
+                    crop_box = (28.32, 591.36, 516.96, 625.44)
+            else:
+                crop_box = (28.32, 591.36, 516.96, 625.44)
+
+            cropped_image = None
+            try:
+                import pdfplumber
+                with pdfplumber.open(pdf_path) as pdf:
+                    page = pdf.pages[0]
+                    table = page.crop(crop_box)
+                    pil_crop = table.to_image(resolution=300).original
+                    cropped_image = pil_crop
+                    print(f"[DEBUG] Cropped region size: {cropped_image.size}", file=sys.stderr, flush=True)
+            except Exception as crop_err:
+                print(f"[WARN] Failed to crop code region: {crop_err}", file=sys.stderr, flush=True)
+
             convert_start = time.perf_counter()
             print(f"[DEBUG] convert_from_path start -> {pdf_path}", file=sys.stderr, flush=True)
-            # Using 150 DPI for faster processing while maintaining OCR accuracy
             images = convert_from_path(
                 pdf_path,
                 first_page=1,
@@ -55,17 +80,28 @@ class FolderCodeExtractor:
             )
             print(f"[DEBUG] convert_from_path done in {time.perf_counter() - convert_start:.2f}s", file=sys.stderr, flush=True)
 
-            if not images:
+            full_page_image = images[0] if images else None
+            if full_page_image is None and cropped_image is None:
                 return None
 
-            # Usa direttamente il modello VLM
             if USE_OLLAMA_VLM:
-                print("[DEBUG] Ollama VLM extraction start", file=sys.stderr, flush=True)
-                vlm_start = time.perf_counter()
-                code_vlm = self.extract_code_with_vlm(images[0])
-                print(f"[DEBUG] Ollama VLM extraction end in {time.perf_counter() - vlm_start:.2f}s (code={code_vlm})", file=sys.stderr, flush=True)
-                if code_vlm:
-                    return code_vlm
+                cropped = cropped_image
+                full = full_page_image
+                images_to_try = []
+                if cropped is not None:
+                    images_to_try.append(("crop", cropped))
+                if full is not None:
+                    images_to_try.append(("full", full))
+                for variant_name, image_candidate in images_to_try:
+                    if image_candidate is None:
+                        continue
+                    print(f"[DEBUG] Ollama VLM extraction start ({variant_name})", file=sys.stderr, flush=True)
+                    vlm_start = time.perf_counter()
+                    code_vlm = self.extract_code_with_vlm(image_candidate)
+                    duration = time.perf_counter() - vlm_start
+                    print(f"[DEBUG] Ollama VLM extraction end in {duration:.2f}s (variant={variant_name}, code={code_vlm})", file=sys.stderr, flush=True)
+                    if code_vlm:
+                        return code_vlm
 
             return None
 
@@ -93,6 +129,19 @@ class FolderCodeExtractor:
         code = code.upper()
 
         return code
+
+    def parse_code_from_text(self, raw_text: Optional[str]) -> Optional[str]:
+        """Estrae e normalizza un codice completo da una stringa arbitraria."""
+        if not raw_text:
+            return None
+
+        normalized = self.normalize_code(raw_text)
+        normalized = re.sub(r"[^A-Z0-9-]", "", normalized)
+        match = self.CODE_IN_TEXT_REGEX.search(normalized)
+        if not match:
+            return None
+        candidate = "-".join(match.groups())
+        return candidate if self.validate_code_format(candidate) else None
 
     def extract_from_folder(self, folder_path: str, recursive: bool = False) -> Dict[str, Optional[str]]:
         """
@@ -157,8 +206,7 @@ class FolderCodeExtractor:
         Returns:
             True se il codice ha un formato valido
         """
-        pattern = r'^[A-Z]{6}\d{2}-[A-Z]{2}[A-Z]{2}[A-Z]{2,4}-[A-Z]{1,3}\d{2}-\d$'
-        return bool(re.match(pattern, code))
+        return bool(self.CODE_REGEX.fullmatch(code))
 
     def extract_code_with_vlm(self, image) -> Optional[str]:
         """
@@ -166,51 +214,178 @@ class FolderCodeExtractor:
         Restituisce il codice normalizzato oppure None in caso di fallimento.
         """
         try:
-            from PIL import Image
             pil_image = image.convert("RGB") if isinstance(image, Image.Image) else Image.fromarray(image)
+            pil_image = ImageOps.autocontrast(pil_image.convert("L"))
+            pil_image = ImageEnhance.Contrast(pil_image).enhance(1.6)
+            pil_image = ImageEnhance.Sharpness(pil_image).enhance(1.2).convert("RGB")
+
+            resample_filter = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
+
+            min_height_to_magnify = int(os.getenv("OLLAMA_MIN_HEIGHT_TO_MAGNIFY", "220"))
+            target_magnify_height = int(os.getenv("OLLAMA_TARGET_HEIGHT", "520"))
+            if pil_image.height < min_height_to_magnify:
+                scale = target_magnify_height / max(pil_image.height, 1)
+                new_width = max(int(pil_image.width * scale), 1)
+                pil_image = pil_image.resize((new_width, target_magnify_height), resample_filter)
+                print(f"[DEBUG] Magnified image for VLM to {pil_image.size}", file=sys.stderr, flush=True)
+
+            max_dim = int(os.getenv("OLLAMA_IMAGE_MAX_DIM", "1600"))
+            min_height_to_resize = int(os.getenv("OLLAMA_MIN_HEIGHT_TO_RESIZE", "260"))
+            if max_dim > 0:
+                if pil_image.height > max_dim:
+                    if pil_image.height >= min_height_to_resize:
+                        pil_image.thumbnail((max_dim, max_dim), resample_filter)
+                        print(f"[DEBUG] Resized image for VLM to {pil_image.size}", file=sys.stderr, flush=True)
+                    else:
+                        print(f"[DEBUG] Skipping downscale (height {pil_image.height} < {min_height_to_resize})", file=sys.stderr, flush=True)
+                elif pil_image.width > max_dim:
+                    print(
+                        f"[DEBUG] Keeping wide aspect ({pil_image.width}x{pil_image.height}) despite max_dim={max_dim}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
             buffer = BytesIO()
             pil_image.save(buffer, format="PNG")
             encoded_image = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-            prompt = (
-                "Extract the document identification code shown in this image. "
-                "The code typically looks like ADRPMV02-PEDSIIE-RRC00-1. "
-                "Reply with the code only. If no code is visible, reply with NONE."
-            )
+            prompts = [
+                (
+                    "/no_think\n"
+                    "Individua la riga etichettata 'CODICE IDENTIFICATIVO'. "
+                    "Copia ogni carattere così com'è (lettere, numeri e trattini) e trascrivi l'intera riga nella chiave 'code_line'. "
+                    "In parallelo fornisci le quattro parti in ordine (commessa, parte_opera, progressivo, revisione) e la chiave 'code' contenente tutte le parti separate da un singolo trattino. "
+                    "Commessa = 6 lettere + 2 cifre; parte_opera = solo lettere; progressivo = 2-5 lettere seguite da 2 cifre; revisione = singola cifra. "
+                    "Restituisci solo JSON: {\"code_line\":string, \"code\":string, \"segments\":[...]}"
+                ),
+                (
+                    "/no_think\n"
+                    "Ricontrolla attentamente la stessa riga. Assicurati che nessuna lettera venga omessa (es. 'EEP' va mantenuto) e sostituisci sequenze lunghe di trattini con un singolo '-'. "
+                    "Se hai dubbi tra 'O' e '0', preferisci la cifra quando appare nella parte numerica. "
+                    "Restituisci di nuovo JSON con le chiavi 'code_line', 'code' e 'segments'."
+                )
+            ]
 
-            payload = {
-                "model": OLLAMA_VLM_MODEL,
-                "prompt": prompt,
-                "images": [encoded_image],
-                "stream": False,
-                "options": {
-                    "temperature": 0.0
-                }
+            format_schema = {
+                "type": "object",
+                "properties": {
+                    "code_line": {"type": "string"},
+                    "code": {"type": "string"},
+                    "segments": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["code_line"]
             }
 
-            response = requests.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json=payload,
-                timeout=OLLAMA_TIMEOUT,
-            )
-            if not response.ok:
-                error_text = response.text
-                raise RuntimeError(f"Ollama error {response.status_code}: {error_text}")
-            data = response.json()
-            content = data.get("response", "") if isinstance(data, dict) else ""
+            segment_patterns = {
+                "commessa": re.compile(r"^[A-Z]{6}\d{2}$"),
+                "parte_opera": re.compile(r"^[A-Z]{4,12}$"),
+                "progressivo": re.compile(r"^[A-Z]{2,5}\d{2}$"),
+                "revisione": re.compile(r"^\d$"),
+            }
 
-            match = re.search(self.CODE_PATTERN, content, re.IGNORECASE)
-            if match:
-                return self.normalize_code(match.group(0))
+            def _fix_digits(text: str) -> str:
+                digit_map = {"O": "0", "I": "1", "L": "1"}
+                return "".join(digit_map.get(ch, ch) for ch in text)
 
-            if content.strip().upper() == "NONE":
+            def _normalize_segment(part: str, idx: int) -> str:
+                token = (part or "").strip().upper()
+                token = token.replace(" ", "")
+                token = re.sub(r"[-–—]+", "", token)
+                token = re.sub(r"[^A-Z0-9]", "", token)
+                if idx == 0 and len(token) >= 2:
+                    token = token[:-2] + _fix_digits(token[-2:])
+                elif idx == 1:
+                    token = token.replace("0", "O").replace("1", "I")
+                elif idx == 2 and len(token) >= 2:
+                    token = token[:-2] + _fix_digits(token[-2:])
+                elif idx == 3:
+                    token = _fix_digits(token)
+                return token
+
+            def call_vlm(prompt_text: str) -> Optional[list[str]]:
+                payload = {
+                    "model": OLLAMA_VLM_MODEL,
+                    "prompt": prompt_text,
+                    "images": [encoded_image],
+                    "format": format_schema,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.0,
+                    }
+                }
+                response = requests.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json=payload,
+                    timeout=OLLAMA_TIMEOUT,
+                )
+                if not response.ok:
+                    error_text = response.text
+                    raise RuntimeError(f"Ollama error {response.status_code}: {error_text}")
+                data = response.json()
+                structured = None
+                if isinstance(data, dict):
+                    structured = data.get("response") or data.get("thinking") or ""
+                print(f"[DEBUG] VLM raw structured data -> {structured}", file=sys.stderr, flush=True)
+
+                parsed: Dict[str, object] = {}
+                if isinstance(structured, dict):
+                    parsed = structured
+                elif isinstance(structured, str):
+                    try:
+                        parsed = json.loads(structured)
+                    except json.JSONDecodeError:
+                        parsed = {}
+
+                segments = parsed.get("segments") if isinstance(parsed, dict) else None
+                cleaned_parts: Optional[list[str]] = None
+                if isinstance(segments, list) and len(segments) == 4:
+                    temp_parts = []
+                    valid = True
+                    for idx, part in enumerate(segments):
+                        if not isinstance(part, str):
+                            valid = False
+                            break
+                        token = _normalize_segment(part, idx)
+                        pattern = list(segment_patterns.values())[idx]
+                        if not pattern.match(token):
+                            valid = False
+                            break
+                        temp_parts.append(token)
+                    if valid:
+                        cleaned_parts = temp_parts
+
+                candidates = []
+                if cleaned_parts:
+                    candidates.append("-".join(cleaned_parts))
+
+                code_field = parsed.get("code") if isinstance(parsed, dict) else None
+                if isinstance(code_field, str):
+                    candidates.append(code_field)
+
+                code_line = parsed.get("code_line") if isinstance(parsed, dict) else None
+                if isinstance(code_line, str):
+                    candidates.append(code_line)
+
+                if isinstance(structured, str):
+                    candidates.append(structured)
+
+                for candidate in candidates:
+                    parsed_code = self.parse_code_from_text(candidate)
+                    if parsed_code:
+                        return parsed_code.split("-")
+
                 return None
 
-            # As fallback try to normalize entire response
-            cleaned = content.strip()
-            if cleaned:
-                normalized = self.normalize_code(cleaned)
-                if self.validate_code_format(normalized):
+            for attempt, prompt_text in enumerate(prompts, start=1):
+                segments = call_vlm(prompt_text)
+                if not segments:
+                    continue
+                cleaned = "-".join(segments)
+                print(f"[DEBUG] Structured code candidate -> {cleaned}", file=sys.stderr, flush=True)
+                normalized = self.parse_code_from_text(cleaned)
+                if normalized:
                     return normalized
 
             return None
