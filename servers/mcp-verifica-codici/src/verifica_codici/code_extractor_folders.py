@@ -26,7 +26,13 @@ class FolderCodeExtractor:
 
     # Pattern per il codice: es. ADRPMV02--PEDSIIE--RRC00-1
     CODE_REGEX = re.compile(r'^[A-Z]{6}\d{2}-[A-Z]{4,12}-[A-Z]{2,5}\d{2}-\d$')
-    CODE_IN_TEXT_REGEX = re.compile(r'([A-Z]{6}\d{2})-([A-Z]{4,12})-([A-Z]{2,5}\d{2})-(\d)')
+    CODE_IN_TEXT_REGEX = re.compile(r'([A-Z]{6}\d{2})-([A-Z]{4,12})-([A-Z]{3,5}\d{2})-(\d)')
+    SEGMENT_PATTERNS = (
+        re.compile(r"^[A-Z]{6}\d{2}$"),
+        re.compile(r"^[A-Z]{4,12}$"),
+        re.compile(r"^[A-Z]{3,5}\d{2}$"),
+        re.compile(r"^\d$"),
+    )
 
     def __init__(self):
         """Inizializza l'estrattore"""
@@ -64,7 +70,8 @@ class FolderCodeExtractor:
                 with pdfplumber.open(pdf_path) as pdf:
                     page = pdf.pages[0]
                     table = page.crop(crop_box)
-                    pil_crop = table.to_image(resolution=300).original
+                    crop_resolution = int(os.getenv("CODE_CROP_RESOLUTION", "500"))
+                    pil_crop = table.to_image(resolution=crop_resolution).original
                     cropped_image = pil_crop
                     print(f"[DEBUG] Cropped region size: {cropped_image.size}", file=sys.stderr, flush=True)
             except Exception as crop_err:
@@ -72,11 +79,12 @@ class FolderCodeExtractor:
 
             convert_start = time.perf_counter()
             print(f"[DEBUG] convert_from_path start -> {pdf_path}", file=sys.stderr, flush=True)
+            pdf_render_dpi = int(os.getenv("PDF_RENDER_DPI", "200"))
             images = convert_from_path(
                 pdf_path,
                 first_page=1,
                 last_page=1,
-                dpi=150
+                dpi=pdf_render_dpi
             )
             print(f"[DEBUG] convert_from_path done in {time.perf_counter() - convert_start:.2f}s", file=sys.stderr, flush=True)
 
@@ -130,6 +138,27 @@ class FolderCodeExtractor:
 
         return code
 
+    @staticmethod
+    def _fix_digits(text: str) -> str:
+        digit_map = {"O": "0", "I": "1", "L": "1"}
+        return "".join(digit_map.get(ch, ch) for ch in text)
+
+    def _normalize_segment(self, part: str, idx: int) -> Optional[str]:
+        token = (part or "").strip().upper()
+        token = token.replace(" ", "")
+        token = re.sub(r"[-–—]+", "", token)
+        token = re.sub(r"[^A-Z0-9]", "", token)
+        if idx == 0 and len(token) >= 2:
+            token = token[:-2] + self._fix_digits(token[-2:])
+        elif idx == 1:
+            token = token.replace("0", "O").replace("1", "I")
+        elif idx == 2 and len(token) >= 2:
+            token = token[:-2] + self._fix_digits(token[-2:])
+        elif idx == 3:
+            token = self._fix_digits(token)
+        pattern = self.SEGMENT_PATTERNS[idx]
+        return token if pattern.match(token) else None
+
     def parse_code_from_text(self, raw_text: Optional[str]) -> Optional[str]:
         """Estrae e normalizza un codice completo da una stringa arbitraria."""
         if not raw_text:
@@ -137,11 +166,28 @@ class FolderCodeExtractor:
 
         normalized = self.normalize_code(raw_text)
         normalized = re.sub(r"[^A-Z0-9-]", "", normalized)
+
+        parts = [p for p in normalized.split("-") if p]
+        if len(parts) >= 4:
+            cleaned_parts = []
+            for idx in range(4):
+                normalized_part = self._normalize_segment(parts[idx], idx)
+                if not normalized_part:
+                    break
+                cleaned_parts.append(normalized_part)
+            if len(cleaned_parts) == 4:
+                candidate = "-".join(cleaned_parts)
+                if self.validate_code_format(candidate):
+                    return candidate
+
+        normalized = normalized.replace("--", "-")
         match = self.CODE_IN_TEXT_REGEX.search(normalized)
-        if not match:
-            return None
-        candidate = "-".join(match.groups())
-        return candidate if self.validate_code_format(candidate) else None
+        if match:
+            candidate = "-".join(match.groups())
+            if self.validate_code_format(candidate):
+                return candidate
+
+        return None
 
     def extract_from_folder(self, folder_path: str, recursive: bool = False) -> Dict[str, Optional[str]]:
         """
@@ -251,17 +297,19 @@ class FolderCodeExtractor:
             prompts = [
                 (
                     "/no_think\n"
-                    "Individua la riga etichettata 'CODICE IDENTIFICATIVO'. "
-                    "Copia ogni carattere così com'è (lettere, numeri e trattini) e trascrivi l'intera riga nella chiave 'code_line'. "
-                    "In parallelo fornisci le quattro parti in ordine (commessa, parte_opera, progressivo, revisione) e la chiave 'code' contenente tutte le parti separate da un singolo trattino. "
-                    "Commessa = 6 lettere + 2 cifre; parte_opera = solo lettere; progressivo = 2-5 lettere seguite da 2 cifre; revisione = singola cifra. "
-                    "Restituisci solo JSON: {\"code_line\":string, \"code\":string, \"segments\":[...]}"
+                    "Individua l'intera riga della tabella etichettata 'CODICE IDENTIFICATIVO'. "
+                    "Copia tutti i caratteri, cella per cella, nell'ordine da sinistra a destra. "
+                    "Restituisci: \n"
+                    "- 'code_line': stringa completa con trattini singoli tra le sezioni.\n"
+                    "- 'code': stessa stringa ma con le 4 sezioni unite da un solo '-'.\n"
+                    "- 'segments': [commessa, parte_opera, progressivo, revisione] rispettando i formati (commessa=6 lettere+2 cifre, parte_opera=solo lettere, progressivo=2-5 lettere + 2 cifre, revisione=singola cifra).\n"
+                    "- 'characters': array dove ogni elemento è UN solo carattere (lettera, numero o trattino) copiato esattamente dalla riga (nessun carattere deve mancare, includi anche la prima lettera)."
                 ),
                 (
                     "/no_think\n"
-                    "Ricontrolla attentamente la stessa riga. Assicurati che nessuna lettera venga omessa (es. 'EEP' va mantenuto) e sostituisci sequenze lunghe di trattini con un singolo '-'. "
-                    "Se hai dubbi tra 'O' e '0', preferisci la cifra quando appare nella parte numerica. "
-                    "Restituisci di nuovo JSON con le chiavi 'code_line', 'code' e 'segments'."
+                    "Ricontrolla la stessa riga: non saltare lettere iniziali (es. deve comparire anche la prima 'A'), mantieni tutte le sequenze 'EEP', e rappresenta serie di trattini consecutivi come singoli '-' nella chiave 'code'. "
+                    "Verifica che il contatore totale dei caratteri in 'characters' corrisponda alla riga originale. "
+                    "Restituisci nuovamente JSON con 'code_line', 'code', 'segments' e 'characters'."
                 )
             ]
 
@@ -273,36 +321,14 @@ class FolderCodeExtractor:
                     "segments": {
                         "type": "array",
                         "items": {"type": "string"}
+                    },
+                    "characters": {
+                        "type": "array",
+                        "items": {"type": "string"}
                     }
                 },
                 "required": ["code_line"]
             }
-
-            segment_patterns = {
-                "commessa": re.compile(r"^[A-Z]{6}\d{2}$"),
-                "parte_opera": re.compile(r"^[A-Z]{4,12}$"),
-                "progressivo": re.compile(r"^[A-Z]{2,5}\d{2}$"),
-                "revisione": re.compile(r"^\d$"),
-            }
-
-            def _fix_digits(text: str) -> str:
-                digit_map = {"O": "0", "I": "1", "L": "1"}
-                return "".join(digit_map.get(ch, ch) for ch in text)
-
-            def _normalize_segment(part: str, idx: int) -> str:
-                token = (part or "").strip().upper()
-                token = token.replace(" ", "")
-                token = re.sub(r"[-–—]+", "", token)
-                token = re.sub(r"[^A-Z0-9]", "", token)
-                if idx == 0 and len(token) >= 2:
-                    token = token[:-2] + _fix_digits(token[-2:])
-                elif idx == 1:
-                    token = token.replace("0", "O").replace("1", "I")
-                elif idx == 2 and len(token) >= 2:
-                    token = token[:-2] + _fix_digits(token[-2:])
-                elif idx == 3:
-                    token = _fix_digits(token)
-                return token
 
             def call_vlm(prompt_text: str) -> Optional[list[str]]:
                 payload = {
@@ -347,9 +373,8 @@ class FolderCodeExtractor:
                         if not isinstance(part, str):
                             valid = False
                             break
-                        token = _normalize_segment(part, idx)
-                        pattern = list(segment_patterns.values())[idx]
-                        if not pattern.match(token):
+                        token = self._normalize_segment(part, idx)
+                        if not token:
                             valid = False
                             break
                         temp_parts.append(token)
@@ -363,6 +388,12 @@ class FolderCodeExtractor:
                 code_field = parsed.get("code") if isinstance(parsed, dict) else None
                 if isinstance(code_field, str):
                     candidates.append(code_field)
+
+                characters_field = parsed.get("characters") if isinstance(parsed, dict) else None
+                if isinstance(characters_field, list):
+                    char_sequence = "".join(ch for ch in characters_field if isinstance(ch, str))
+                    if char_sequence:
+                        candidates.append(char_sequence)
 
                 code_line = parsed.get("code_line") if isinstance(parsed, dict) else None
                 if isinstance(code_line, str):
