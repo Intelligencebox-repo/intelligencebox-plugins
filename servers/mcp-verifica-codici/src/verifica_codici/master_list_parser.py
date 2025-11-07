@@ -12,7 +12,7 @@ class MasterListParser:
     """Parser per estrarre l'elenco completo dei codici documentali dal PDF master"""
 
     # Pattern per riga della tabella: ADRPMV 02 PE DG GEN - - E ED 00 1
-    TABLE_ROW_PATTERN = r'ADRPMV\s+(\d{2})\s+PE\s+([A-Z]{2})\s+([A-Z]{2,4})\s+[-–]\s+[-–]\s+([A-Z])\s+([A-Z]{2,3})\s+(\d{2})\s+(\d)'
+    TABLE_ROW_PATTERN = r'ADRPMV\s+(\d{2})\s+PE\s+([A-Z]{2})\s+([A-Z]{1,8})\s+[-–]\s+[-–]\s+([A-Z])\s+([A-Z]{1,4})\s+(\d{2})\s+(\d)'
 
     def __init__(self):
         """Inizializza il parser"""

@@ -9,6 +9,7 @@ import time
 import base64
 import json
 from io import BytesIO
+from pathlib import Path
 from typing import Optional, Dict
 from pdf2image import convert_from_path
 from PIL import Image, ImageOps, ImageEnhance
@@ -109,7 +110,8 @@ class FolderCodeExtractor:
                     duration = time.perf_counter() - vlm_start
                     print(f"[DEBUG] Ollama VLM extraction end in {duration:.2f}s (variant={variant_name}, code={code_vlm})", file=sys.stderr, flush=True)
                     if code_vlm:
-                        return code_vlm
+                        corrected = self._maybe_correct_progress_with_filename(code_vlm, pdf_path)
+                        return corrected
 
             return None
 
@@ -188,6 +190,58 @@ class FolderCodeExtractor:
                 return candidate
 
         return None
+
+    def _guess_progress_from_filename(self, pdf_path: str) -> Optional[tuple[str, str]]:
+        stem = Path(pdf_path).stem
+        stem = re.sub(r"\([^)]*\)", "", stem)
+        tokens = [t for t in re.split(r"[^A-Z0-9]+", stem.upper()) if t]
+        digits_token = None
+        letters_token = None
+        prefix_token = None
+        for token in reversed(tokens):
+            if digits_token is None and token.isdigit():
+                digits_token = token
+                continue
+            if digits_token is not None and letters_token is None and token.isalpha():
+                letters_token = token
+                continue
+            if digits_token is not None and letters_token is not None and token.isalpha():
+                prefix_token = token
+                break
+        if letters_token and digits_token:
+            combined_letters = (prefix_token or "") + letters_token
+            return combined_letters, digits_token
+        return None
+
+    def _maybe_correct_progress_with_filename(self, code: str, pdf_path: str) -> str:
+        if not code or "-" not in code:
+            return code
+        parts = code.split("-")
+        if len(parts) != 4:
+            return code
+        progressivo = parts[2]
+        match = re.match(r"^([A-Z]+)(\d+)$", progressivo)
+        if not match:
+            return code
+        letters, digits = match.groups()
+        guess = self._guess_progress_from_filename(pdf_path)
+        if not guess:
+            return code
+        guess_letters, guess_digits = guess
+        if guess_digits != digits or len(letters) != len(guess_letters):
+            return code
+        diff = sum(1 for a, b in zip(letters, guess_letters) if a != b)
+        if 0 < diff <= 1:
+            parts[2] = f"{guess_letters}{digits}"
+            corrected = "-".join(parts)
+            if self.validate_code_format(corrected):
+                print(
+                    f"[DEBUG] Progressivo adjusted via filename ({letters}{digits} -> {guess_letters}{digits})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return corrected
+        return code
 
     def extract_from_folder(self, folder_path: str, recursive: bool = False) -> Dict[str, Optional[str]]:
         """
