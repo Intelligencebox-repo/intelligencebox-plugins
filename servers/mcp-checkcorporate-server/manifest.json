@@ -1,0 +1,43 @@
+{
+  "id": "checkcorporate-server",
+  "name": "CheckCorporate Server",
+  "description": "MCP server il collegamento di CHECKcorporate",
+  "author": "Tepui s.r.l.",
+  "version": "0.1.0",
+  "icon": "📊",
+  "category": "finance",
+  "tags": ["bilancio", "contabilità", "piano-dei-conti", "CHECK_corporate"],
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-checkcorporate-server:latest",
+  "transport": "stdio",
+  "entrypoint": ["python", "-m", "checkcorporate_server"],
+  "configSchema": {
+    "CLIENT_ID": {
+      "type": "string",
+      "description": "Client ID usato per autenticare le chiamate verso il DB/servizi esterni (fornito dal deploy).",
+      "required": true
+    },
+    "CLIENT_SECRET": {
+      "type": "string",
+      "description": "Client secret corrispondente al Client ID. Conservare in modo sicuro (secret).",
+      "required": true
+    }
+    ,
+    "API_ENDPOINT_URL": {
+      "type": "string",
+      "description": "URL dell'endpoint API esterno (es. https://api.example.com) usato dal server per eseguire query o chiamate esterne.",
+      "required": true
+    }
+  },
+  "dockerDefaults": {
+    "containerPort": 8080,
+    "sseEndpoint": "/sse",
+    "protocol": "tcp",
+    "needsPortMapping": true,
+    "defaultHostPort": 8080,
+    "needsFileAccess": true,
+    "resources": {
+      "memory": "256m",
+      "cpus": "0.25"
+    }
+  }
+}

@@ -54,3 +54,6 @@ Thumbs.db
 
 # Yarn Integrity file
 .yarn-integrity
+
+#.venv
+.venv

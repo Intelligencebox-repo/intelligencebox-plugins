@@ -1,0 +1,25 @@
+version: '3.9'
+
+services:
+  checkcorporate:
+    image: ghcr.io/intelligencebox-repo/mcp-checkcorporate-server:latest
+    deploy:
+      restart_policy:
+        condition: on-failure
+    # Use Docker secrets to provide sensitive values. The container will
+    # mount secrets under /run/secrets/<name>. We use an entrypoint that
+    # exports the secret contents into environment variables before
+    # launching the Python module.
+    secrets:
+      - client_id
+      - client_secret
+      - api_endpoint_url
+    entrypoint: ["/bin/sh", "-c", "export CLIENT_ID=$(cat /run/secrets/client_id) \n  && export CLIENT_SECRET=$(cat /run/secrets/client_secret) \n  && export API_ENDPOINT_URL=$(cat /run/secrets/api_endpoint_url) \n  && python -m checkcorporate_server"]
+
+secrets:
+  client_id:
+    file: ./secrets/client_id.txt
+  client_secret:
+    file: ./secrets/client_secret.txt
+  api_endpoint_url:
+    file: ./secrets/api_endpoint_url.txt
