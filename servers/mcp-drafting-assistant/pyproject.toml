@@ -1,0 +1,37 @@
+[project]
+name = "drafting_assistant"
+version = "0.1.0"
+description = "Un server MCP per assistere nella stesura di bozze di atti notarili."
+requires-python = "~=3.12"
+
+dependencies = [
+    # Dipendenze comuni per MCP e Pydantic
+    "mcp~=1.1.3",
+    "anyio",
+    "sniffio",
+    "idna",
+    "jsonschema",
+    "jsonschema-specifications",
+    "referencing",
+    "rpds-py",
+    "attrs",
+    "pydantic==2.8.2",
+    "pydantic_core==2.20.1",
+    "annotated-types",
+    "typing_extensions",
+
+    # === DIPENDENZE PER SSE SERVER ===
+    "uvicorn",
+    "starlette",
+    "sse-starlette",
+
+    # Per le chiamate all'LLM (chatbox.py)
+    "openai",
+    "python-dotenv",
+    
+    "aiohttp"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

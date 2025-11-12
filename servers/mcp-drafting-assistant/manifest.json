@@ -1,0 +1,69 @@
+{
+  "id": "drafting-assistant",
+  "name": "Drafting Assistant",
+  "description": "Un server MCP per creare bozze di atti notarili partendo da un atto d'esempio.",
+  "author": "intelligencebox",
+  "version": "1.0.0",
+  "icon": "📝​",
+  "category": "business",
+  "tags": ["notary", "drafts", "deeds", "drafting assistant"],
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-drafting-assistant:latest",
+  "entrypoint": ["python", "-m", "drafting_assistant"],
+  "configSchema": {
+    "CHAT_URL": {
+      "type": "string",
+      "description": "URL endpoint per interagire con la chat.",
+      "required": true,
+      "default": "http://box/server:7890"
+    }
+  },
+  "volumeMountsConfig": {
+    "dataai": {
+      "envVars": ["DATA_AI_PATH", "MOUNT_PATH", "FILE_DIRECTORY"],
+      "description": "Directory principale per i file AI/documenti processati",
+      "required": true
+    },
+    "store_image": {
+      "envVars": ["IMAGE_DIRECTORY", "IMAGE_DIRECTORY_PATH"],
+      "description": "Directory per storage delle immagini",
+      "required": false
+    },
+    "output": {
+      "envVars": ["OUTPUT_DIR", "OUTPUT_PATH"],
+      "description": "Directory per output e file generati",
+      "required": false
+    },
+    "data": {
+      "envVars": ["DATA_PATH", "MOUNT_PATH"],
+      "description": "Directory dati generica",
+      "required": false
+    }
+  },
+  "dockerDefaults": {
+    "containerPort": 8082,
+    "sseEndpoint": "/sse",
+    "protocol": "tcp",
+    "needsPortMapping": true,
+    "defaultHostPort": 8082,
+    "needsFileAccess": true,
+    "volumeMounts": {
+      "dataai": "/dataai",
+      "store_image": "/store_image",
+      "output": "/output",
+      "data": "/data"
+    },
+    "resources": {
+      "memory": "512m",
+      "cpus": "0.5"
+    }
+  },
+  "requirements": {
+    "minMemory": "256Mi",
+    "minCpu": 0.2,
+    "capabilities": ["network"]
+  },
+  "features": [
+    "Generation of notarial drafts",
+    "Generation of notarial deeds"
+  ]
+}
