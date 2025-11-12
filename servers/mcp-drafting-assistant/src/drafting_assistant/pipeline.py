@@ -37,8 +37,8 @@ async def drafting_pipeline(chat_id: str, tipo_atto: str) -> str:
             return "Errore: Nessuna clausola estratta nello Step 1."
     except Exception as e:
         return f"Errore durante lo Step 1: {e}"
-    # TODO Quando carico il tool sulla Box per i test, al primo giro mi fermo qua e mi faccio restituire solo clausole_ruolo chiedendo di stamparmele.
 
+    """
     # --- STEP 1.3: Descrizione e scopo ---
     # Analizza ogni clausola e ci genera una descrizione e uno scopo
     # Restituisce una lista di dizionari, dove ogni dizionario è composto dalla chiave = titolo della clausola e dai valori = descrizione e scopo
@@ -96,7 +96,7 @@ async def drafting_pipeline(chat_id: str, tipo_atto: str) -> str:
             return "Errore: Nessun risultato nello Step 3."
     except Exception as e:
         return f"Errore durante lo Step 3: {e}"
-    
+    """
 
     # Restituzione dell'atto
-    return "complete_draft"
+    return clausole_ruolo
