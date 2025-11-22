@@ -57,6 +57,7 @@ class ContentScanParams(BaseModel):
     log_every: int | None = Field(default=20, description="Frequenza di log di avanzamento (numero di PDF).")
     max_workers: int | None = Field(default=4, description="Numero di thread per la scansione PDF (CPU bound I/O).")
     columns_to_check: list[str] | None = Field(default=None, description="Lista di colonne da verificare nei PDF. Supportate: 'code', 'title' (o 'description'). Default: entrambe.")
+    exclude_files: list[str] | None = Field(default=None, description="Elenco di file (basename o percorso relativo) da escludere dalla scansione.")
 
 def normalize_title_for_search(text: str) -> str:
     """Normalizza una stringa descrittiva per il confronto case-insensitive."""
@@ -290,15 +291,30 @@ def extract_text_from_pdf(pdf_path: str, max_pages: int | None) -> dict:
     }
 
 
-def scan_pdfs_content(folder: str, max_pages: int | None, log_every: int | None = 20, max_workers: int | None = 4) -> tuple[list[dict], list[str]]:
+def scan_pdfs_content(folder: str, max_pages: int | None, log_every: int | None = 20, max_workers: int | None = 4, exclude_files: list[str] | None = None) -> tuple[list[dict], list[str]]:
     """Scansione ricorsiva PDF con log periodici, parallela su thread."""
     scanned: list[dict] = []
     errors: list[str] = []
     pdf_files: list[str] = []
+
+    exclude_norm = [e.lower().strip() for e in (exclude_files or []) if e and str(e).strip()]
+
+    def is_excluded(path: str) -> bool:
+        if not exclude_norm:
+            return False
+        rel = os.path.relpath(path, folder).lower()
+        base = os.path.basename(path).lower()
+        for pat in exclude_norm:
+            if base == pat or rel == pat or rel.endswith(pat):
+                return True
+        return False
+
     for root, _, files in os.walk(folder):
         for name in files:
             if name.lower().endswith(".pdf"):
-                pdf_files.append(os.path.join(root, name))
+                path = os.path.join(root, name)
+                if not is_excluded(path):
+                    pdf_files.append(path)
 
     total = len(pdf_files)
     start = time.perf_counter()
@@ -354,23 +370,33 @@ def match_entry_content(entry: dict, scanned: list[dict], columns_to_check: list
         code_ok = (not code_required) or code_in_text or code_in_filename
         title_ok = (not title_required) or title_in_text or title_in_filename
 
-        if (code_required or title_required) and code_ok and title_ok:
-            if code_required and title_required:
-                status = "matched" if (code_in_text or code_in_filename) and (title_in_text or title_in_filename) else "partial"
-            elif code_required:
-                status = "code_found"
+        if code_required and title_required:
+            if code_ok and title_ok:
+                status = "matched"
+            elif code_ok or title_ok:
+                status = "partial"
             else:
-                status = "title_found"
+                continue
+        elif code_required:
+            if not code_ok:
+                continue
+            status = "code_found"
+        elif title_required:
+            if not title_ok:
+                continue
+            status = "title_found"
+        else:
+            continue
 
-            return {
-                "matched_file": pdf["filename"],
-                "status": status,
-                "code_in_text": code_in_text,
-                "code_in_filename": code_in_filename,
-                "title_in_text": title_in_text,
-                "title_in_filename": title_in_filename,
-                "checked_columns": columns_to_check,
-            }
+        return {
+            "matched_file": pdf["filename"],
+            "status": status,
+            "code_in_text": code_in_text,
+            "code_in_filename": code_in_filename,
+            "title_in_text": title_in_text,
+            "title_in_filename": title_in_filename,
+            "checked_columns": columns_to_check,
+        }
 
     return None
 
@@ -401,6 +427,7 @@ async def handle_content_scan(arguments: dict) -> list[TextContent]:
         params.max_pages,
         params.log_every,
         params.max_workers,
+        params.exclude_files,
     )
 
     matches: list[dict] = []
@@ -420,6 +447,7 @@ async def handle_content_scan(arguments: dict) -> list[TextContent]:
         "missing": len(missing),
         "scan_errors": len(scan_errors),
         "columns_checked": columns_to_check,
+        "excluded_files": params.exclude_files or [],
     }
 
     result = {

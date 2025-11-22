@@ -1,261 +1,354 @@
 {
   "summary": {
     "entries": 91,
-    "pdfs_scanned": 92,
-    "matches": 24,
-    "missing": 67,
-    "scan_errors": 0
+    "pdfs_scanned": 91,
+    "matches": 19,
+    "missing": 72,
+    "scan_errors": 0,
+    "columns_checked": [
+      "code",
+      "title"
+    ],
+    "excluded_files": [
+      "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf"
+    ]
   },
   "matches": [
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/DOCUMENTI GENERALI/DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-QIM.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-CO-DG-ELEELENCOELABORATIA4-DSA01004000F344AQ2AT100PECODGELEX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
-      "code": "AT1-00-PE-CO-DG-RIGRELAZIONEILLUSTRATIVAGENERALEA4-DSA01004000F344AQ2AT100PECODGRIGX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-RIG"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
-      "code": "AT1-00-PE-CO-DG-CRLCRONOPROGRAMMADEILAVORIA4-DSA01004000F344AQ2AT100PECODGCRLX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-CRL"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
-      "code": "AT1-00-PE-CO-DG-CMECOMPUTOMETRICOESTIMATIVOA4-DSA01004000F344AQ2AT100PECODGCMEX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-CME"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
-      "code": "AT1-00-PE-CO-DG-EPUELENCOPREZZIUNITARIOA4-DSA01004000F344AQ2AT100PECODGEPUX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-EPU"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
       "code": "AT1-00-PE-CO-DG-QIMQUADRODELLINCIDENZAPERCENTUALEDELLAQUANTITDIMANODOPERAA4-DSA01004000F344AQ2AT100PECODGQIMX",
       "title": "Quadro dell'incidenza percentuale della quantità di mano d'opera"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/DOCUMENTI GENERALI/DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-CSA.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-CO-DG-QECQUADROECONOMICOA4-DSA01004000F344AQ2AT100PECODGQECX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-QEC"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
       "code": "AT1-00-PE-CO-DG-CSACAPITOLATOSPECIALEDIAPPALTO-PRESCRIZIONITECNICHEA4-DSA01004000F344AQ2AT100PECODGCSAX",
       "title": "Capitolato speciale di appalto - Prescrizioni tecniche"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/STRUTTURALE/DSA1004-000-F-344-A-Q2-AT1-00-PE-ST-DG-RMT.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-CO-DG-PIMPIANODIMANUTENZIONEDELLOPERAA4-DSA01004000F344AQ2AT100PECODGPIMX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-PIM"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
-      "code": "AT1-00-PE-ST-DG-RTERELAZIONETECNICAA4-DSA01004000F344AQ2AT100PESTDGRTEX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-RTE"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
       "code": "AT1-00-PE-ST-DG-RMTRELAZIONESULLAQUALITEDOSATURADEIMATERIALIA4-DSA01004000F344AQ2AT100PESTDGRMTX",
       "title": "Relazione sulla qualità e dosatura dei materiali"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/STRUTTURALE/DSA1004-000-F-344-A-Q2-AT1-00-PE-ST-DG-RCA.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-ST-DG-GETRELAZIONEGEOTECNICAESULLEFONDAZIONIA4-DSA01004000F344AQ2AT100PESTDGGETX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-GET"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
       "code": "AT1-00-PE-ST-DG-RCARELAZIONEDICALCOLOEFASCICOLODEICALCOLIDISTABILITA4-DSA01004000F344AQ2AT100PESTDGRCAX",
       "title": "Relazione di calcolo e Fascicolo dei calcoli di stabilità"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/STRUTTURALE/DSA1004-000-F-344-A-Q2-AT1-00-PE-ST-DG-PIM.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
       "code": "AT1-00-PE-ST-DG-PIMPIANODIMANUTENZIONEDELLAPARTESTRUTTURALEDELLOPERAA4-DSA01004000F344AQ2AT100PESTDGPIMX",
       "title": "Piano di Manutenzione della parte strutturale dell'opera"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/STRUTTURALE/DSA1004-000-F-344-A-Q2-AT1-00-PE-ST-DG-ACC.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-ST-DG-DEFCONFIGURAZIONEDEFORMATEA4-DSA01004000F344AQ2AT100PESTDGDEFX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-DEF"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
-      "code": "AT1-00-PE-ST-DG-DIADIAGRAMMISPETTRIDIRISPOSTAA4-DSA01004000F344AQ2AT100PESTDGDIAX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-DIA"
-    },
-    {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
-      "code_in_filename": false,
-      "title_in_text": true,
-      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
       "code": "AT1-00-PE-ST-DG-ACCGIUDIZIOMOTIVATODIACCETTABILITDEIRISULTATIA4-DSA01004000F344AQ2AT100PESTDGACCX",
       "title": "Giudizio motivato di accettabilità dei risultati"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/STRUTTURALE/DSA1004-000-F-344-A-Q2-AT1-00-PE-ST-DG-RCS.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
       "code": "AT1-00-PE-ST-DG-RCSRAPPRESENTAZIONEGRAFICADELLEPRINCIPALICARATTERISTICHEDELLASOLLECITAZIONEA4-DSA01004000F344AQ2AT100PESTDGRCSX",
       "title": "Rappresentazione grafica delle principali caratteristiche della sollecitazione"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/STRUTTURALE/DSA1004-000-F-344-A-Q2-AT1-00-PE-ST-DG-SSC.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
       "code": "AT1-00-PE-ST-DG-SSCSCHEMISTRUTTURALIPOSTIALLABASEDEICALCOLIA4-DSA01004000F344AQ2AT100PESTDGSSCX",
       "title": "Schemi strutturali posti alla base dei calcoli"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/ELETTRICO E DATI/DSA01004-000-F-344-A-Q2-AT1-00-PE-EL-DG-IDE.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-ST-DG-LSWLICENZASOFTWAREPERILCALCOLOSTRUTTURALEA4-DSA01004000F344AQ2AT100PESTDGLSWX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-LSW"
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-EL-DG-IDERELAZIONETECNICA-PROTEZIONECONTROIFULMINIA4-DSA01004000F344AQ2AT100PEELDGIDEX",
+      "title": "Relazione Tecnica - Protezione contro i fulmini"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/AMBIENTALE/DSA01004-001-F-344-A-Q2-AT1-00-PE-AM-DG-RTE.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-ST-DG-RTGALLEGATO-RELAZIONEGEOLOGICAA4-DSA01004000F344AQ2AT100PESTDGRTGX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-RTG"
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-AM-DG-RTERELAZIONESULLECARATTERISTICHEDEIMATERIALIDACOSTRUZIONEEASSEMBLAGGIODELLECOMPONENTIPREFABBRICATEA4-DSA01004001F344AQ2AT100PEAMDGRTEX",
+      "title": "Relazione sulle caratteristiche dei materiali da costruzione e assemblaggio delle componenti prefabbricate"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/SICUREZZA E COORDINAMENTO/DSA01004-001-F-344-A-Q2-AT1-00-PE-SC-DG-PSC.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-MC-DG-RTERELAZIONETECNICAA4-DSA01004000F344AQ2AT100PEMCDGRTEX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-MC-DG-RTE"
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-SC-DG-PSCCONCEZIONEDELSISTEMADISICUREZZAPERLESERCIZIOELECARATTERISTICHEDELPROGETTOA4-DSA01004001F344AQ2AT100PESCDGPSCX",
+      "title": "Concezione del sistema di sicurezza per l'esercizio e le caratteristiche del progetto"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "DOCUMENTAZIONE TECNICA/SICUREZZA E COORDINAMENTO/DSA01004-003-F-344-A-Q2-AT1-00-PE-SC-DG-PSC.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-EL-DG-RTERELAZIONETECNICAA4-DSA01004000F344AQ2AT100PEELDGRTEX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-EL-DG-RTE"
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-SC-DG-PSCPROCEDUREDIAPPOSIZIONEDELLASEGNALETICASTRADALEA4-DSA01004003F344AQ2AT100PESCDGPSCX",
+      "title": "Procedure di apposizione della segnaletica stradale"
     },
     {
-      "matched_file": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE elenco documenti.pdf",
-      "status": "matched",
-      "code_in_text": true,
+      "matched_file": "ELABORATI GRAFICI/ARCHITETTONICO/DSA01004-000-F-344-A-Q2-AT1-00-PE-AR-ED-DTC.pdf",
+      "status": "partial",
+      "code_in_text": false,
       "code_in_filename": false,
       "title_in_text": true,
       "title_in_filename": false,
-      "code": "AT1-00-PE-EL-DG-RCARELAZIONEDICALCOLOA4-DSA01004000F344AQ2AT100PEELDGRCAX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-EL-DG-RCA"
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-AR-ED-DTCDETTAGLIO-PARETIDOGANALIEPERCORSIPEDONALIA1VARIADSA01004000F344AQ2AT100PEAREDDTCX",
+      "title": "Dettaglio - pareti doganali e percorsi pedonali"
+    },
+    {
+      "matched_file": "ELABORATI GRAFICI/ARCHITETTONICO/DSA01004-004-F-344-A-Q2-AT1-00-PE-AR-EA-DTC.pdf",
+      "status": "partial",
+      "code_in_text": false,
+      "code_in_filename": false,
+      "title_in_text": true,
+      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-AR-EA-DTCDETTAGLIO-LOCALETECNICOGRUPPODIPRESSURIZZAZIONEA1VARIADSA01004004F344AQ2AT100PEAREADTCX",
+      "title": "Dettaglio - Locale tecnico gruppo di pressurizzazione"
+    },
+    {
+      "matched_file": "ELABORATI GRAFICI/STRUTTURALE/DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-EG-CLS.pdf",
+      "status": "partial",
+      "code_in_text": false,
+      "code_in_filename": false,
+      "title_in_text": true,
+      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-ST-EG-CLSPROGETTOSTRUTTURALEDELLAFONDAZIONEEDEINUOVILIMITIDOGANALIINCAA1VARIADSA01004000F344AQ2AT100PESTEGCLSX",
+      "title": "Progetto strutturale della fondazione e dei nuovi limiti doganali in c.a."
+    },
+    {
+      "matched_file": "ELABORATI GRAFICI/SPECIALI/DSA01004-000-F-344-A-Q2-AT1-00-PE-SP-EF-IMS.pdf",
+      "status": "partial",
+      "code_in_text": false,
+      "code_in_filename": false,
+      "title_in_text": true,
+      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-SP-EF-IMSIMPIANTORIVELAZIONEFUMI-SCHEMAABLOCCHIA1-DSA01004000F344AQ2AT100PESPEFIMSX",
+      "title": "Impianto Rivelazione fumi - Schema a blocchi"
+    },
+    {
+      "matched_file": "ELABORATI GRAFICI/MECCANICO-IDRICO/DSA01004-001-F-344-A-Q2-AT1-00-PE-MC-EP-IMM.pdf",
+      "status": "partial",
+      "code_in_text": false,
+      "code_in_filename": false,
+      "title_in_text": true,
+      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-MC-EP-IMMDISTRIBUZIONEIMPIANTOCLIMATIZZAZIONEESPANSIONEDIRETTA-PTA1150DSA01004001F344AQ2AT100PEMCEPIMMX",
+      "title": "Distribuzione impianto climatizzazione espansione diretta - PT"
+    },
+    {
+      "matched_file": "ELABORATI GRAFICI/MECCANICO-IDRICO/DSA01004-002-F-344-A-Q2-AT1-00-PE-MC-EP-IMM.pdf",
+      "status": "partial",
+      "code_in_text": false,
+      "code_in_filename": false,
+      "title_in_text": true,
+      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-MC-EP-IMMDISTRIBUZIONEIMPIANTOCLIMATIZZAZIONEESPANSIONEDIRETTA-P1A1150DSA01004002F344AQ2AT100PEMCEPIMMX",
+      "title": "Distribuzione impianto climatizzazione espansione diretta - P1"
+    },
+    {
+      "matched_file": "ELABORATI GRAFICI/MECCANICO-IDRICO/DSA01004-003-F-344-A-Q2-AT1-00-PE-MC-EP-IMM.pdf",
+      "status": "partial",
+      "code_in_text": false,
+      "code_in_filename": false,
+      "title_in_text": true,
+      "title_in_filename": false,
+      "checked_columns": [
+        "code",
+        "title"
+      ],
+      "code": "AT1-00-PE-MC-EP-IMMDISTRIBUZIONEIMPIANTOCLIMATIZZAZIONEESPANSIONEDIRETTA-P2A1150DSA01004003F344AQ2AT100PEMCEPIMMX",
+      "title": "Distribuzione impianto climatizzazione espansione diretta - P2"
     }
   ],
   "missing": [
     {
-      "code": "AT1-00-PE-EL-DG-ILLRELAZIONEDICALCOLOILLUMINOTECNICOA4-DSA01004000F344AQ2AT100PEELDGILLX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-EL-DG-ILL"
+      "code": "AT1-00-PE-CO-DG-ELEELENCOELABORATIA4-DSA01004000F344AQ2AT100PECODGELEX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE"
     },
     {
-      "code": "AT1-00-PE-EL-DG-IDERELAZIONETECNICA-PROTEZIONECONTROIFULMINIA4-DSA01004000F344AQ2AT100PEELDGIDEX",
-      "title": "Relazione Tecnica - Protezione contro i fulmini"
+      "code": "AT1-00-PE-CO-DG-RIGRELAZIONEILLUSTRATIVAGENERALEA4-DSA01004000F344AQ2AT100PECODGRIGX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-RIG"
+    },
+    {
+      "code": "AT1-00-PE-CO-DG-CRLCRONOPROGRAMMADEILAVORIA4-DSA01004000F344AQ2AT100PECODGCRLX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-CRL"
+    },
+    {
+      "code": "AT1-00-PE-CO-DG-CMECOMPUTOMETRICOESTIMATIVOA4-DSA01004000F344AQ2AT100PECODGCMEX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-CME"
+    },
+    {
+      "code": "AT1-00-PE-CO-DG-EPUELENCOPREZZIUNITARIOA4-DSA01004000F344AQ2AT100PECODGEPUX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-EPU"
+    },
+    {
+      "code": "AT1-00-PE-CO-DG-QECQUADROECONOMICOA4-DSA01004000F344AQ2AT100PECODGQECX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-QEC"
+    },
+    {
+      "code": "AT1-00-PE-CO-DG-PIMPIANODIMANUTENZIONEDELLOPERAA4-DSA01004000F344AQ2AT100PECODGPIMX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-PIM"
+    },
+    {
+      "code": "AT1-00-PE-ST-DG-RTERELAZIONETECNICAA4-DSA01004000F344AQ2AT100PESTDGRTEX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-RTE"
+    },
+    {
+      "code": "AT1-00-PE-ST-DG-GETRELAZIONEGEOTECNICAESULLEFONDAZIONIA4-DSA01004000F344AQ2AT100PESTDGGETX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-GET"
+    },
+    {
+      "code": "AT1-00-PE-ST-DG-DEFCONFIGURAZIONEDEFORMATEA4-DSA01004000F344AQ2AT100PESTDGDEFX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-DEF"
+    },
+    {
+      "code": "AT1-00-PE-ST-DG-DIADIAGRAMMISPETTRIDIRISPOSTAA4-DSA01004000F344AQ2AT100PESTDGDIAX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-DIA"
+    },
+    {
+      "code": "AT1-00-PE-ST-DG-LSWLICENZASOFTWAREPERILCALCOLOSTRUTTURALEA4-DSA01004000F344AQ2AT100PESTDGLSWX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-LSW"
+    },
+    {
+      "code": "AT1-00-PE-ST-DG-RTGALLEGATO-RELAZIONEGEOLOGICAA4-DSA01004000F344AQ2AT100PESTDGRTGX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-ST-DG-RTG"
+    },
+    {
+      "code": "AT1-00-PE-MC-DG-RTERELAZIONETECNICAA4-DSA01004000F344AQ2AT100PEMCDGRTEX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-MC-DG-RTE"
+    },
+    {
+      "code": "AT1-00-PE-EL-DG-RTERELAZIONETECNICAA4-DSA01004000F344AQ2AT100PEELDGRTEX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-EL-DG-RTE"
+    },
+    {
+      "code": "AT1-00-PE-EL-DG-RCARELAZIONEDICALCOLOA4-DSA01004000F344AQ2AT100PEELDGRCAX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-EL-DG-RCA"
+    },
+    {
+      "code": "AT1-00-PE-EL-DG-ILLRELAZIONEDICALCOLOILLUMINOTECNICOA4-DSA01004000F344AQ2AT100PEELDGILLX",
+      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-EL-DG-ILL"
     },
     {
       "code": "AT1-00-PE-EL-DG-IMQSCHEMIUNIFILARIQUADRIELETTRICIA4-DSA01004000F344AQ2AT100PEELDGIMQX",
@@ -274,10 +367,6 @@
       "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-GR-DG-RCA"
     },
     {
-      "code": "AT1-00-PE-AM-DG-RTERELAZIONESULLECARATTERISTICHEDEIMATERIALIDACOSTRUZIONEEASSEMBLAGGIODELLECOMPONENTIPREFABBRICATEA4-DSA01004001F344AQ2AT100PEAMDGRTEX",
-      "title": "Relazione sulle caratteristiche dei materiali da costruzione e assemblaggio delle componenti prefabbricate"
-    },
-    {
       "code": "AT1-00-PE-AM-DG-RTERELAZIONESULLAGESTIONEDELLEMATERIEA4-DSA01004002F344AQ2AT100PEAMDGRTEX",
       "title": "DSA01004-002-F-344-A-Q2-AT1-00-PE-AM-DG-RTE"
     },
@@ -290,16 +379,8 @@
       "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-AI-DG-RTP"
     },
     {
-      "code": "AT1-00-PE-SC-DG-PSCCONCEZIONEDELSISTEMADISICUREZZAPERLESERCIZIOELECARATTERISTICHEDELPROGETTOA4-DSA01004001F344AQ2AT100PESCDGPSCX",
-      "title": "Concezione del sistema di sicurezza per l'esercizio e le caratteristiche del progetto"
-    },
-    {
       "code": "AT1-00-PE-SC-DG-PSCPIANODISICUREZZAECOORDINAMENTOA4-DSA01004002F344AQ2AT100PESCDGPSCX",
       "title": "DSA01004-002-F-344-A-Q2-AT1-00-PE-SC-DG-PSC"
-    },
-    {
-      "code": "AT1-00-PE-SC-DG-PSCPROCEDUREDIAPPOSIZIONEDELLASEGNALETICASTRADALEA4-DSA01004003F344AQ2AT100PESCDGPSCX",
-      "title": "Procedure di apposizione della segnaletica stradale"
     },
     {
       "code": "AT1-00-PE-SC-DG-FTOFASCICOLODELLOPERAA4-DSA01004000F344AQ2AT100PESCDGFTOX",
@@ -330,10 +411,6 @@
       "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-AR-ES-IOP"
     },
     {
-      "code": "AT1-00-PE-AR-ED-DTCDETTAGLIO-PARETIDOGANALIEPERCORSIPEDONALIA1VARIADSA01004000F344AQ2AT100PEAREDDTCX",
-      "title": "Dettaglio - pareti doganali e percorsi pedonali"
-    },
-    {
       "code": "AT1-00-PE-AR-EP-POPPIANTE-PTP1A1VARIADSA01004001F344AQ2AT100PEAREPPOPX",
       "title": "DSA01004-001-F-344-A-Q2-AT1-00-PE-AR-EP-POP"
     },
@@ -360,14 +437,6 @@
     {
       "code": "AT1-00-PE-AR-EA-DTCABACO-SOLAIA1VARIADSA01004003F344AQ2AT100PEAREADTCX",
       "title": "DSA01004-003-F-344-A-Q2-AT1-00-PE-AR-EA-DTC"
-    },
-    {
-      "code": "AT1-00-PE-AR-EA-DTCDETTAGLIO-LOCALETECNICOGRUPPODIPRESSURIZZAZIONEA1VARIADSA01004004F344AQ2AT100PEAREADTCX",
-      "title": "Dettaglio - Locale tecnico gruppo di pressurizzazione"
-    },
-    {
-      "code": "AT1-00-PE-ST-EG-CLSPROGETTOSTRUTTURALEDELLAFONDAZIONEEDEINUOVILIMITIDOGANALIINCAA1VARIADSA01004000F344AQ2AT100PESTEGCLSX",
-      "title": "Progetto strutturale della fondazione e dei nuovi limiti doganali in c.a."
     },
     {
       "code": "AT1-00-PE-EL-EG-IMTIMPIANTIESTERNIEGALLERIASERVIZIA1VARIADSA01004000F344AQ2AT100PEELEGIMTX",
@@ -412,42 +481,6 @@
     {
       "code": "AT1-00-PE-EL-EF-IMQQUADROELETTRICO-SCHEMAABLOCCHIA1-DSA01004000F344AQ2AT100PEELEFIMQX",
       "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-EL-EF-IMQ"
-    },
-    {
-      "code": "AT1-00-PE-SP-EG-PRIIMPIANTORIVELAZIONEFUMI-PTA1150DSA01004001F344AQ2AT100PESPEGPRIX",
-      "title": "DSA01004-001-F-344-A-Q2-AT1-00-PE-SP-EG-PRI"
-    },
-    {
-      "code": "AT1-00-PE-SP-EG-PRIIMPIANTORIVELAZIONEFUMI-P1A1150DSA01004002F344AQ2AT100PESPEGPRIX",
-      "title": "DSA01004-002-F-344-A-Q2-AT1-00-PE-SP-EG-PRI"
-    },
-    {
-      "code": "AT1-00-PE-SP-EG-PRIIMPIANTORIVELAZIONEFUMI-P2A1150DSA01004003F344AQ2AT100PESPEGPRIX",
-      "title": "DSA01004-003-F-344-A-Q2-AT1-00-PE-SP-EG-PRI"
-    },
-    {
-      "code": "AT1-00-PE-SP-EF-IMSIMPIANTORIVELAZIONEFUMI-SCHEMAABLOCCHIA1-DSA01004000F344AQ2AT100PESPEFIMSX",
-      "title": "Impianto Rivelazione fumi - Schema a blocchi"
-    },
-    {
-      "code": "AT1-00-PE-MC-EP-IMCSMALTIMENTOACQUECHIAREA1150DSA01004001F344AQ2AT100PEMCEPIMCX",
-      "title": "DSA01004-001-F-344-A-Q2-AT1-00-PE-MC-EP-IMC"
-    },
-    {
-      "code": "AT1-00-PE-MC-EP-IMCSCARICHI-PTA1150DSA01004002F344AQ2AT100PEMCEPIMCX",
-      "title": "DSA01004-002-F-344-A-Q2-AT1-00-PE-MC-EP-IMC"
-    },
-    {
-      "code": "AT1-00-PE-MC-EP-IMCSCARICHI-P1A1150DSA01004003F344AQ2AT100PEMCEPIMCX",
-      "title": "DSA01004-003-F-344-A-Q2-AT1-00-PE-MC-EP-IMC"
-    },
-    {
-      "code": "AT1-00-PE-MC-EP-IMCSCARICHI-P2A1150DSA01004004F344AQ2AT100PEMCEPIMCX",
-      "title": "DSA01004-004-F-344-A-Q2-AT1-00-PE-MC-EP-IMC"
-    },
-    {
-      "code": "AT1-00-PE-MC-EC-IMICAMERA07-ADDUZIONEACQUAA1150DSA01004000F344AQ2AT100PEMCECIMIX",
-      "title": "DSA01004-000-F-344-A-Q2-AT1-00-PE-MC-EC-IMI"
     }
   ],
   "scan_errors": []
