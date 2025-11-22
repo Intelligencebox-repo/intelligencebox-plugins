@@ -56,6 +56,7 @@ class ContentScanParams(BaseModel):
     max_pages: int | None = Field(default=2, description="Pagine da leggere per ogni PDF (None per tutte).")
     log_every: int | None = Field(default=20, description="Frequenza di log di avanzamento (numero di PDF).")
     max_workers: int | None = Field(default=4, description="Numero di thread per la scansione PDF (CPU bound I/O).")
+    columns_to_check: list[str] | None = Field(default=None, description="Lista di colonne da verificare nei PDF. Supportate: 'code', 'title' (o 'description'). Default: entrambe.")
 
 def normalize_title_for_search(text: str) -> str:
     """Normalizza una stringa descrittiva per il confronto case-insensitive."""
@@ -332,27 +333,65 @@ def scan_pdfs_content(folder: str, max_pages: int | None, log_every: int | None 
     return scanned, errors
 
 
-def match_entry_content(entry: dict, scanned: list[dict]) -> dict | None:
-    """Match che richiede il codice nel testo o nel filename; il titolo aiuta ma non è obbligatorio."""
+def match_entry_content(entry: dict, scanned: list[dict], columns_to_check: list[str]) -> dict | None:
+    """Match che richiede le colonne selezionate (code/title) nel testo o nel filename."""
     code_compact = entry.get("code_compact", "")
     title_norm = entry.get("title_norm", "")
+
+    check_code = "code" in columns_to_check
+    check_title = "title" in columns_to_check
+
     for pdf in scanned:
-        code_found = code_compact and (code_compact in pdf["compact"] or code_compact in pdf["file_compact"])
-        title_found = title_norm and (title_norm in pdf["lower"] or title_norm in pdf["file_lower"])
-        if code_found or (code_found and title_found):
-            status = "matched" if title_found else "code_found"
+        code_in_text = bool(code_compact and code_compact in pdf["compact"]) if check_code else False
+        code_in_filename = bool(code_compact and code_compact in pdf["file_compact"]) if check_code else False
+        title_in_text = bool(title_norm and title_norm in pdf["lower"]) if check_title else False
+        title_in_filename = bool(title_norm and title_norm in pdf["file_lower"]) if check_title else False
+
+        # Colonne richieste ma vuote vengono ignorate.
+        code_required = check_code and bool(code_compact)
+        title_required = check_title and bool(title_norm)
+
+        code_ok = (not code_required) or code_in_text or code_in_filename
+        title_ok = (not title_required) or title_in_text or title_in_filename
+
+        if (code_required or title_required) and code_ok and title_ok:
+            if code_required and title_required:
+                status = "matched" if (code_in_text or code_in_filename) and (title_in_text or title_in_filename) else "partial"
+            elif code_required:
+                status = "code_found"
+            else:
+                status = "title_found"
+
             return {
                 "matched_file": pdf["filename"],
                 "status": status,
-                "code_found": code_found,
-                "title_found": title_found,
+                "code_in_text": code_in_text,
+                "code_in_filename": code_in_filename,
+                "title_in_text": title_in_text,
+                "title_in_filename": title_in_filename,
+                "checked_columns": columns_to_check,
             }
+
     return None
 
 
 async def handle_content_scan(arguments: dict) -> list[TextContent]:
     """Handler per scansione contenuto PDF vs CSV (codice nel testo)."""
     params = ContentScanParams(**arguments)
+
+    def normalize_columns(cols: list[str] | None) -> list[str]:
+        allowed = {"code", "title"}
+        normalized: list[str] = []
+        for c in cols or ["code", "title"]:
+            name = str(c).strip().lower()
+            if name == "description":
+                name = "title"
+            if name in allowed:
+                normalized.append(name)
+        return normalized or ["code", "title"]
+
+    columns_to_check = normalize_columns(params.columns_to_check)
+
     entries = load_entries_from_csv(params.entries_csv)
     print(f"[LOG] Loaded {len(entries)} entries from {params.entries_csv}", file=sys.stderr, flush=True)
 
@@ -367,7 +406,7 @@ async def handle_content_scan(arguments: dict) -> list[TextContent]:
     matches: list[dict] = []
     missing: list[dict] = []
     for e in entries:
-        m = match_entry_content(e, scanned)
+        m = match_entry_content(e, scanned, columns_to_check)
         if m:
             m.update({"code": e.get("code"), "title": e.get("title")})
             matches.append(m)
@@ -380,6 +419,7 @@ async def handle_content_scan(arguments: dict) -> list[TextContent]:
         "matches": len(matches),
         "missing": len(missing),
         "scan_errors": len(scan_errors),
+        "columns_checked": columns_to_check,
     }
 
     result = {
