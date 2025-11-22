@@ -1,0 +1,47 @@
+{
+  "id": "schematics-wirelist",
+  "name": "Schematics Wirelist Extractor",
+  "description": "Estrae liste fili e componenti da schemi elettrici (PDF/immagini) e restituisce un file Excel multi‑foglio pronto per la produzione.",
+  "author": "intelligencebox",
+  "version": "0.1.0",
+  "icon": "⚡️",
+  "category": "engineering",
+  "tags": ["electrical", "schematics", "wirelist", "excel", "ocr"],
+  "dockerImage": "ghcr.io/intelligencebox-repo/mcp-schematics-wirelist-server:latest",
+  "entrypoint": "node /app/dist/index.js",
+  "configSchema": {
+    "OPENAI_API_KEY": {
+      "type": "string",
+      "description": "API key for the OpenAI model used to understand the schematic.",
+      "required": true
+    },
+    "OPENAI_MODEL": {
+      "type": "string",
+      "description": "Model name (default: gpt-4.1).",
+      "required": false
+    },
+    "OPENAI_BASE_URL": {
+      "type": "string",
+      "description": "Optional custom base URL for self-hosted API compatible with OpenAI.",
+      "required": false
+    },
+    "DEFAULT_MAX_PAGES": {
+      "type": "number",
+      "description": "Numero massimo di pagine PDF da analizzare (fallback).",
+      "required": false,
+      "default": 3
+    }
+  },
+  "requirements": {
+    "minMemory": "512Mi",
+    "minCpu": 0.3,
+    "capabilities": ["network", "filesystem"]
+  },
+  "features": [
+    "Estrazione di liste fili e distinte componenti da schemi PDF o immagini",
+    "Conversione delle pagine PDF in immagini e invio al modello visivo per ogni scheda",
+    "Generazione di file Excel con fogli LISTA FILI, DISTINTA, INDICAZIONI e log testo grezzo",
+    "Configurazioni per limitare il numero di pagine e scegliere il modello LLM",
+    "Fallback con file Excel vuoto ma pronto per compilazione manuale"
+  ]
+}

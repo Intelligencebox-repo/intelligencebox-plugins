@@ -28,6 +28,8 @@ class FolderCodeExtractor:
     # Pattern per il codice: es. ADRPMV02--PEDSIIE--RRC00-1
     CODE_REGEX = re.compile(r'^[A-Z]{6}\d{2}-[A-Z]{4,12}-[A-Z]{2,5}\d{2}-\d$')
     CODE_IN_TEXT_REGEX = re.compile(r'([A-Z]{6}\d{2})-([A-Z]{4,12})-([A-Z]{3,5}\d{2})-(\d)')
+    # Pattern generico per codici multi-segmento separati da dash (es. DSA01004-000-F-344-A-Q2-AT1-00-PE-CO-DG-ELE)
+    GENERAL_CODE_REGEX = re.compile(r'[A-Z0-9]{3,}(?:-[A-Z0-9]{2,}){3,}')
     SEGMENT_PATTERNS = (
         re.compile(r"^[A-Z]{6}\d{2}$"),
         re.compile(r"^[A-Z]{4,12}$"),
@@ -188,6 +190,10 @@ class FolderCodeExtractor:
             candidate = "-".join(match.groups())
             if self.validate_code_format(candidate):
                 return candidate
+        # Fallback generico per codici con molti segmenti separati da dash
+        generic_match = self.GENERAL_CODE_REGEX.search(normalized)
+        if generic_match:
+            return generic_match.group(0)
 
         return None
 

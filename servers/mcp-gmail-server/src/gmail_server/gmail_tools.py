@@ -1,5 +1,6 @@
 import os
 import base64
+import mimetypes
 from typing import Literal, Optional, List
 
 from email.mime.text import MIMEText
@@ -55,7 +56,15 @@ class GmailTools:
         return self.auth_manager.logout()
 
     # --- Metodi per l'Interazione con Gmail ---
-    def send_email(self, to: str, subject: str, body: str, body_type: Literal['plain', 'html'] = 'plain', attachment_paths: Optional[List] = None) -> dict:
+    def send_email(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        body_type: Literal['plain', 'html'] = 'plain',
+        attachment_paths: Optional[List[str]] = None,
+        attachments: Optional[List[dict]] = None
+    ) -> dict:
         """
         Sends an email.
 
@@ -64,35 +73,35 @@ class GmailTools:
             subject (str): Subject of the email.
             body (str): Body of the email.
             body_type (Literal['plain', 'html'], optional): Type of the email body. Defaults to 'plain'.
-            attachment_paths (Optional[List], optional): List of file paths to attach. Defaults to None.
+            attachment_paths (Optional[List[str]], optional): List of file paths to attach. Defaults to None.
+            attachments (Optional[List[dict]], optional): List of attachments provided as base64 payloads with filename and optional mime_type.
+                Each element should be a dict with keys 'filename', 'content_base64', and optional 'mime_type'.
 
         Returns:
             dict: Response from the Gmail API.
         """
         service = self.auth_manager.get_service(self.API_NAME, self.API_VERSION)
         try:
+            normalized_body_type = body_type.lower()
+            if normalized_body_type not in ['plain', 'html']:
+                return {'error': 'body_type must be either "plain" or "html".', 'status': 'failed'}
+
             message = MIMEMultipart()
             message['to'] = to
             message['subject'] = subject
 
-            if body_type.lower() not in ['plain', 'html']:
-                return 'Error: body_type must be either "plain" or "html".'
+            body_with_signature = self._apply_signature(body, normalized_body_type)
+            message.attach(MIMEText(body_with_signature, normalized_body_type))
 
-            message.attach(MIMEText(body, body_type.lower()))
+            if attachments:
+                error = self._attach_base64_payloads(message, attachments)
+                if error:
+                    return error
 
             if attachment_paths:
-                for attachment_path in attachment_paths:
-                    if os.path.exists(attachment_path):
-                        filename = os.path.basename(attachment_path)
-                        with open(attachment_path, 'rb') as attachment:
-                            part = MIMEBase('application', 'octet-stream')
-                            part.set_payload(attachment.read())
-                        encoders.encode_base64(part)
-                        part.add_header('Content-Disposition', f'attachment; filename={filename}')
-                        message.attach(part)
-
-                    else:
-                        return {'error': f'Attachment file {attachment_path} not found.', 'status': 'failed'}
+                error = self._attach_files_from_paths(message, attachment_paths)
+                if error:
+                    return error
 
             raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
             response = service.users().messages().send(userId='me', body={'raw': raw_message}).execute()
@@ -101,6 +110,58 @@ class GmailTools:
     
         except Exception as e:
             return {'error': f'An error occurred: {str(e)}', 'status': 'failed'}
+
+    def _apply_signature(self, body: str, body_type: str) -> str:
+        signature = os.getenv("GMAIL_EMAIL_SIGNATURE", "")
+        if not signature or not signature.strip():
+            return body
+
+        if body_type.lower() == 'html':
+            return f"{body}<br><br>{signature}"
+        return f"{body}\n\n{signature}"
+
+    def _build_attachment_part(self, content: bytes, mime_type: Optional[str], filename: str) -> MIMEBase:
+        maintype, subtype = ('application', 'octet-stream')
+        if mime_type and '/' in mime_type:
+            maintype, subtype = mime_type.split('/', 1)
+
+        part = MIMEBase(maintype, subtype)
+        part.set_payload(content)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename={filename}')
+        return part
+
+    def _attach_base64_payloads(self, message: MIMEMultipart, attachments: List[dict]) -> Optional[dict]:
+        for attachment in attachments:
+            filename = attachment.get('filename')
+            content_base64 = attachment.get('content_base64')
+            mime_type = attachment.get('mime_type')
+
+            if not filename or not content_base64:
+                return {'error': 'Each attachment must include filename and content_base64.', 'status': 'failed'}
+
+            try:
+                content_bytes = base64.b64decode(content_base64)
+            except Exception as decode_err:
+                return {'error': f'Invalid base64 content for attachment {filename}: {decode_err}', 'status': 'failed'}
+
+            message.attach(self._build_attachment_part(content_bytes, mime_type, filename))
+
+        return None
+
+    def _attach_files_from_paths(self, message: MIMEMultipart, attachment_paths: List[str]) -> Optional[dict]:
+        for attachment_path in attachment_paths:
+            if not os.path.exists(attachment_path):
+                return {'error': f'Attachment file {attachment_path} not found.', 'status': 'failed'}
+
+            filename = os.path.basename(attachment_path)
+            with open(attachment_path, 'rb') as attachment:
+                content_bytes = attachment.read()
+
+            mime_type, _ = mimetypes.guess_type(attachment_path)
+            message.attach(self._build_attachment_part(content_bytes, mime_type, filename))
+
+        return None
         
     def search_emails(self, query: Optional[str] = None, label: Literal['ALL', 'INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH' ] = 'INBOX', max_results: Optional[int] = 10, next_page_token: Optional[str] = None):
         """

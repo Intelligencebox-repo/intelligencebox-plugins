@@ -6,6 +6,8 @@ node_modules/
 # Testing
 coverage/
 
+DATA/
+
 # Production
 build/
 dist/

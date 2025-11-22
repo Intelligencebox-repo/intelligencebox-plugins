@@ -16,11 +16,17 @@ from .gmail_tools import GmailTools
 
 
 # --- DEFINIZIONE DEI PARAMETRI PER I TOOL ---
+class AttachmentParams(BaseModel):
+    filename: str = Field(description="Nome del file da allegare, inclusa l'estensione.")
+    content_base64: str = Field(description="Contenuto dell'allegato codificato in base64.")
+    mime_type: Optional[str] = Field(None, description="Tipo MIME dell'allegato (default: application/octet-stream se non specificato).")
+
 class SendEmailParams(BaseModel):
     to: str = Field(description="L'indirizzo email del destinatario.")
     subject: str = Field(description="L'oggetto dell'email.")
     body: str = Field(description="Il corpo del testo dell'email.")
     body_type: Literal['plain', 'html'] = Field('plain', description="Il formato del corpo dell'email, 'plain' o 'html'.")
+    attachments: Optional[List[AttachmentParams]] = Field(None, description="Lista di allegati come contenuto base64 con nome file e MIME type opzionale.")
     attachment_paths: Optional[List[str]] = Field(None, description="Una lista di percorsi di file da allegare.")
 
 class SearchEmailsParams(BaseModel):
@@ -59,7 +65,7 @@ def create_gmail_server() -> Server:
             Tool(name="logout", description="Tool per disconnettere l'account Google dell'utente. Cancella il token di accesso salvato. Dopo aver usato questo tool, l'utente dovrà eseguire di nuovo l'autenticazione per usare le altre funzioni.", inputSchema={"type": "object", "properties": {}}),
 
             # Tool Gmail
-            Tool(name="send-email", description="Invia una email tramite Gmail. Richiede i parametri 'to', 'subject', e 'body'.", inputSchema=SendEmailParams.model_json_schema()),
+            Tool(name="send-email", description="Invia una email tramite Gmail (testo o HTML) con supporto per allegati via percorso file o payload base64. Richiede i parametri 'to', 'subject', e 'body'.", inputSchema=SendEmailParams.model_json_schema()),
             Tool(name="search-emails", description="Cerca email in Gmail. Permette di filtrare per 'query' (es. 'from:mario@rossi.it'), 'label' (es. 'INBOX'), e 'max_results'. Restituisce un elenco di email con i loro dettagli, incluso il 'msg_id' univoco necessario per gli altri tool.", inputSchema=SearchEmailsParams.model_json_schema()),
             Tool(name="get-email-details", description="Tool per ottenere i metadati di una email specifica, dato il suo 'msg_id'. Restituisce mittente, oggetto, data, snippet, ma non il corpo completo del messaggio.", inputSchema=EmailIdParams.model_json_schema()),
             Tool(name="get-email-body", description="Tool per estrarre e leggere il corpo completo (in formato testo) di una email specifica, dato il suo 'msg_id'. Usalo quando l'utente chiede di leggere il contenuto di un messaggio.", inputSchema=EmailIdParams.model_json_schema()),
@@ -93,7 +99,16 @@ def create_gmail_server() -> Server:
             # Gestione tool Gmail
             elif name == "send-email":
                 args = SendEmailParams(**arguments)
-                result_message = await asyncio.to_thread(gmail_tool.send_email, to=args.to, subject=args.subject, body=args.body, attachment_paths=args.attachment_paths)
+                attachment_payloads = [attachment.model_dump() for attachment in args.attachments] if args.attachments else None
+                result_message = await asyncio.to_thread(
+                    gmail_tool.send_email,
+                    to=args.to,
+                    subject=args.subject,
+                    body=args.body,
+                    body_type=args.body_type,
+                    attachments=attachment_payloads,
+                    attachment_paths=args.attachment_paths,
+                )
 
             elif name == "search-emails":
                 args = SearchEmailsParams(**arguments)

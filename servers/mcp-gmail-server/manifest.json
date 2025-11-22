@@ -20,6 +20,11 @@
       "type": "string",
       "description": "Il Client Secret ottenuto dalla tua Google Cloud Console.",
       "required": true
+    },
+    "GMAIL_EMAIL_SIGNATURE": {
+      "type": "editor",
+      "description": "Firma email (testo o HTML) da aggiungere automaticamente in fondo ai messaggi inviati.",
+      "required": false
     }
   },
   "dockerDefaults": {
