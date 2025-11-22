@@ -1,6 +1,8 @@
-import os
 import base64
+import html
 import mimetypes
+import os
+import re
 from typing import Literal, Optional, List
 
 from email.mime.text import MIMEText
@@ -61,7 +63,7 @@ class GmailTools:
         to: str,
         subject: str,
         body: str,
-        body_type: Literal['plain', 'html'] = 'plain',
+        body_type: Literal['plain', 'html'] = 'html',
         attachment_paths: Optional[List[str]] = None,
         attachments: Optional[List[dict]] = None
     ) -> dict:
@@ -82,15 +84,15 @@ class GmailTools:
         """
         service = self.auth_manager.get_service(self.API_NAME, self.API_VERSION)
         try:
-            normalized_body_type = body_type.lower()
-            if normalized_body_type not in ['plain', 'html']:
-                return {'error': 'body_type must be either "plain" or "html".', 'status': 'failed'}
+            normalized_body_type = 'html'
 
             message = MIMEMultipart()
             message['to'] = to
             message['subject'] = subject
+            signature = os.getenv("GMAIL_EMAIL_SIGNATURE", "")
 
-            body_with_signature = self._apply_signature(body, normalized_body_type)
+            body_content = body if body_type.lower() == 'html' else self._convert_plain_to_html(body)
+            body_with_signature = self._apply_signature(body_content, 'html', signature)
             message.attach(MIMEText(body_with_signature, normalized_body_type))
 
             if attachments:
@@ -111,14 +113,26 @@ class GmailTools:
         except Exception as e:
             return {'error': f'An error occurred: {str(e)}', 'status': 'failed'}
 
-    def _apply_signature(self, body: str, body_type: str) -> str:
-        signature = os.getenv("GMAIL_EMAIL_SIGNATURE", "")
+    def _apply_signature(self, body: str, body_type: str, signature: str) -> str:
         if not signature or not signature.strip():
             return body
 
         if body_type.lower() == 'html':
             return f"{body}<br><br>{signature}"
+        if self._contains_html(signature):
+            signature = self._strip_html(signature)
         return f"{body}\n\n{signature}"
+
+    def _contains_html(self, content: str) -> bool:
+        return bool(re.search(r'<[^>]+>', content))
+
+    def _strip_html(self, content: str) -> str:
+        text = re.sub(r'<[^>]+>', '', content)
+        return html.unescape(text).strip()
+
+    def _convert_plain_to_html(self, content: str) -> str:
+        escaped = html.escape(content)
+        return escaped.replace("\n", "<br>")
 
     def _build_attachment_part(self, content: bytes, mime_type: Optional[str], filename: str) -> MIMEBase:
         maintype, subtype = ('application', 'octet-stream')
