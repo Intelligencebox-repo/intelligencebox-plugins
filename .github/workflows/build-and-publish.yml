@@ -1,13 +1,19 @@
 name: Build and Publish Docker Images
 
 on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'servers/**'
+      - '.github/workflows/build-and-publish.yml'
   workflow_dispatch:
     inputs:
       server_name:
-        description: 'MCP server name (e.g., mcp-iop-ticketing-server)'
-        required: true
+        description: 'Optional MCP server name to force build (e.g., mcp-iop-ticketing-server)'
+        required: false
         type: string
-        default: 'mcp-iop-ticketing-server'
 
 env:
   REGISTRY: ghcr.io
@@ -18,8 +24,75 @@ permissions:
   id-token: write
 
 jobs:
-  build-and-push:
+  detect:
+    name: Detect changed servers
     runs-on: ubuntu-latest
+    outputs:
+      servers: ${{ steps.determine.outputs.servers }}
+      has_changes: ${{ steps.determine.outputs.has_changes }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect changed files
+        id: changed
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            servers/**
+
+      - name: Determine target servers
+        id: determine
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SERVER: ${{ github.event.inputs.server_name }}
+          CHANGED_FILES: ${{ steps.changed.outputs.all_changed_files }}
+          ANY_CHANGED: ${{ steps.changed.outputs.any_modified }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && -n "$INPUT_SERVER" ]]; then
+            servers_json=$(printf '"%s"\n' "$INPUT_SERVER" | jq -s .)
+            echo "servers=$servers_json" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$ANY_CHANGED" != "true" ]]; then
+            echo "servers=[]" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          declare -A seen=()
+          while IFS= read -r file; do
+            [[ "$file" != servers/*/* ]] && continue
+            dir="${file#servers/}"
+            dir="${dir%%/*}"
+            if [[ -d "servers/$dir" ]]; then
+              seen["$dir"]=1
+            fi
+          done <<< "$CHANGED_FILES"
+
+          if [[ ${#seen[@]} -eq 0 ]]; then
+            echo "servers=[]" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          servers_json=$(printf '%s\n' "${!seen[@]}" | sort | jq -R . | jq -cs .)
+          echo "servers=$servers_json" >> "$GITHUB_OUTPUT"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    name: Build and push (${{ matrix.server }})
+    needs: detect
+    if: needs.detect.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        server: ${{ fromJson(needs.detect.outputs.servers) }}
     
     steps:
       - name: Checkout repository
@@ -67,11 +140,10 @@ jobs:
       - name: Set build variables
         id: vars
         run: |
-          SERVER_NAME="${{ github.event.inputs.server_name }}"
+          SERVER_NAME="${{ matrix.server }}"
           echo "server_name=${SERVER_NAME}" >> $GITHUB_OUTPUT
           echo "context=./servers/${SERVER_NAME}" >> $GITHUB_OUTPUT
           
-          # Convert repository owner to lowercase
           OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "owner_lower=${OWNER_LOWER}" >> $GITHUB_OUTPUT
       

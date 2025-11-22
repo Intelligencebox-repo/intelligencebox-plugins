@@ -15,7 +15,7 @@ from .google_api import GoogleAuthManager, AuthError
 
 
 class EmailMessage(BaseModel):
-    msg_id: str = Field(..., description='The ID of the email message')
+    msg_id: str = Field(..., description='The ID  of the email message')
     subject: str = Field(..., description='The subject of the email message')
     sender: str = Field(..., description='The sender of the email message')
     recipient: str = Field(..., description='The recipient of the email message')
