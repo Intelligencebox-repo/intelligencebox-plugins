@@ -45,12 +45,14 @@ class ValidateFoldersParams(BaseModel):
     mode: str | None = Field(default="text_search", description="Strategia di validazione: 'text_search' per estrarre la tabella dal PDF elenco e cercare codice/titolo nel testo dei PDF; 'vlm' per la logica precedente basata su OCR/VLM.")
     max_pages_to_scan: int | None = Field(default=3, description="Numero massimo di pagine da leggere per ogni PDF nella modalità text_search (None per tutte le pagine).")
     columns_to_check: list[str] | None = Field(default=None, description="Colonne da verificare nei PDF in modalità text_search. Supportate: 'code', 'title' (alias 'description'). Default: entrambe.")
+    exclude_files: list[str] | None = Field(default=None, description="Lista di file (basename) da escludere dal controllo in modalità text_search (es. l'elenco documenti stesso).")
 
 class CheckDocumentsParams(BaseModel):
     documents_folder: str = Field(..., description="Cartella con i PDF da controllare.")
     entries: list[dict] | str = Field(..., description="Lista di oggetti {code,title,...}, stringa JSON della lista oppure percorso a file CSV/JSON con i codici.")
     max_pages_to_scan: int | None = Field(default=3, description="Numero massimo di pagine da leggere per ogni PDF (None per tutte le pagine).")
     columns_to_check: list[str] | None = Field(default=None, description="Colonne da verificare nei PDF. Supportate: 'code', 'title' (alias 'description'). Default: entrambe.")
+    exclude_files: list[str] | None = Field(default=None, description="Lista di file (basename) da escludere dal controllo (es. l'elenco documenti).")
 
 class ContentScanParams(BaseModel):
     entries_csv: str = Field(..., description="Percorso al CSV con almeno la colonna 'code' (e opzionalmente 'title').")
@@ -159,12 +161,16 @@ def extract_text_from_pdf(pdf_path: str, max_pages: int | None = None) -> str:
         return "\n".join(texts)
 
 
-def scan_pdfs_for_text(folder_path: str, max_pages: int | None = None) -> tuple[list[dict], list[str]]:
+def scan_pdfs_for_text(folder_path: str, max_pages: int | None = None, exclude_files: list[str] | None = None) -> tuple[list[dict], list[str]]:
     """Legge tutti i PDF in una cartella e prepara testi normalizzati per la ricerca."""
     if not os.path.exists(folder_path):
         raise FileNotFoundError(f"Cartella non trovata: {folder_path}")
 
-    pdf_files = sorted([f for f in os.listdir(folder_path) if f.lower().endswith(".pdf")])
+    exclude_norm = {f.lower().strip() for f in (exclude_files or []) if f}
+    pdf_files = sorted([
+        f for f in os.listdir(folder_path)
+        if f.lower().endswith(".pdf") and f.lower() not in exclude_norm
+    ])
     scanned: list[dict] = []
     errors: list[str] = []
 
@@ -263,13 +269,14 @@ def match_entry_to_pdfs(entry: dict, scanned_pdfs: list[dict], columns_to_check:
     return best_match
 
 
-async def run_text_check(entries: list[dict], documents_folder: str, max_pages: int | None, columns_to_check: list[str] | None = None) -> list[TextContent]:
+async def run_text_check(entries: list[dict], documents_folder: str, max_pages: int | None, columns_to_check: list[str] | None = None, exclude_files: list[str] | None = None) -> list[TextContent]:
     """Esegue la validazione text-only su una lista di entries contro i PDF in cartella."""
     cols = normalize_columns(columns_to_check)
     scanned_pdfs, scan_errors = await asyncio.to_thread(
         scan_pdfs_for_text,
         documents_folder,
         max_pages,
+        exclude_files,
     )
 
     pdf_match_counts = {pdf["filename"]: 0 for pdf in scanned_pdfs}
@@ -300,6 +307,7 @@ async def run_text_check(entries: list[dict], documents_folder: str, max_pages: 
         "pdfs_with_no_matches": len(pdfs_without_matches),
         "scan_errors": len(scan_errors),
         "columns_checked": cols,
+        "excluded_files": exclude_files or [],
     }
 
     result = {
@@ -338,8 +346,8 @@ def load_entries_from_csv(csv_path: str) -> list[dict]:
     return entries
 
 
-def extract_text_from_pdf(pdf_path: str, max_pages: int | None) -> dict:
-    """Estrae testo (upper/compact/lower) da un PDF."""
+def extract_text_from_pdf_structured(pdf_path: str, max_pages: int | None) -> dict:
+    """Estrae testo (upper/compact/lower) da un PDF in forma strutturata."""
     try:
         doc = fitz.open(pdf_path)
         texts = []
@@ -399,7 +407,7 @@ def scan_pdfs_content(folder: str, max_pages: int | None, log_every: int | None 
     def process(path: str):
         rel = os.path.relpath(path, folder)
         try:
-            text = extract_text_from_pdf(path, max_pages)
+            text = extract_text_from_pdf_structured(path, max_pages)
         except Exception as exc:
             return rel, {"upper": "", "compact": "", "lower": ""}, str(exc)
         return rel, text, None
@@ -545,7 +553,9 @@ async def validate_folders_text_mode(params: ValidateFoldersParams) -> list[Text
     if not entries:
         codes = await asyncio.to_thread(list_parser.parse_master_list, params.master_list_pdf)
         entries = [{"code": code, "title": "", "row": [], "page": None} for code in codes]
-    return await run_text_check(entries, params.documents_folder, params.max_pages_to_scan, params.columns_to_check)
+    # Normalizza tipi per evitare errori su .upper()/.lower()
+    entries = load_entries(entries)
+    return await run_text_check(entries, params.documents_folder, params.max_pages_to_scan, params.columns_to_check, params.exclude_files)
 
 
 # --- HANDLER PER VALIDATE_FOLDERS ---
@@ -691,7 +701,7 @@ async def handle_check_documents(arguments: dict) -> list[TextContent]:
     """Verifica una cartella di PDF usando entries già estratte."""
     params = CheckDocumentsParams(**arguments)
     entries = load_entries(params.entries)
-    return await run_text_check(entries, params.documents_folder, params.max_pages_to_scan, params.columns_to_check)
+    return await run_text_check(entries, params.documents_folder, params.max_pages_to_scan, params.columns_to_check, params.exclude_files)
 
 
 # --- CREAZIONE DEL SERVER MCP ---
@@ -718,7 +728,7 @@ def create_verifica_codici_server() -> Server:
             ),
             Tool(
                 name="check_documents",
-                description="Controlla i PDF in cartella cercando code/title nel testo/nome file; entries accetta lista, stringa JSON o percorso CSV/JSON; columns_to_check per limitare a code/title.",
+                description="Controlla i PDF in cartella cercando code/title nel testo/nome file; entries accetta lista, stringa JSON o percorso CSV/JSON; columns_to_check per limitare a code/title; exclude_files per saltare PDF come l'elenco documenti.",
                 inputSchema=CheckDocumentsParams.model_json_schema(),
             ),
             Tool(
@@ -728,7 +738,7 @@ def create_verifica_codici_server() -> Server:
             ),
             Tool(
                 name="validate_folders",
-                description="End-to-end: estrae tabella dal PDF elenco e verifica i PDF in cartella. mode='text_search' (default) usa codice/titolo; columns_to_check limita i campi. mode='vlm' usa OCR/VLM precedente.",
+                description="End-to-end: estrae tabella dal PDF elenco e verifica i PDF in cartella. mode='text_search' (default) usa codice/titolo; columns_to_check limita i campi; exclude_files per saltare PDF (es. elenco documenti). mode='vlm' usa OCR/VLM precedente.",
                 inputSchema=ValidateFoldersParams.model_json_schema(),
             )
         ]
