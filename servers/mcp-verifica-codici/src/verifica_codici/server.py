@@ -63,12 +63,16 @@ class ContentScanParams(BaseModel):
 
 def normalize_title_for_search(text: str) -> str:
     """Normalizza una stringa descrittiva per il confronto case-insensitive."""
+    if not isinstance(text, str):
+        text = "" if text is None else str(text)
     lowered = (text or "").lower()
     cleaned = re.sub(r"[^a-z0-9]+", " ", lowered)
     return re.sub(r"\s+", " ", cleaned).strip()
 
 def normalize_code_for_search(code: str) -> str:
     """Normalizza un codice rimuovendo tutto tranne A-Z0-9."""
+    if not isinstance(code, str):
+        code = "" if code is None else str(code)
     return re.sub(r"[^A-Z0-9]", "", (code or "").upper())
 
 
@@ -126,9 +130,16 @@ def load_entries(entries_param: list[dict] | str) -> list[dict]:
     for item in raw_entries:
         if not isinstance(item, dict):
             continue
+        code_val = item.get("code", "")
+        title_val = item.get("title", "")
+        # Coerce to string to avoid attribute errors
+        if not isinstance(code_val, str):
+            code_val = "" if code_val is None else str(code_val)
+        if not isinstance(title_val, str):
+            title_val = "" if title_val is None else str(title_val)
         cleaned.append({
-            "code": item.get("code", "") or "",
-            "title": item.get("title", "") or "",
+            "code": code_val or "",
+            "title": title_val or "",
             "row": item.get("row", []),
             "page": item.get("page"),
         })
@@ -192,8 +203,13 @@ def match_entry_to_pdfs(entry: dict, scanned_pdfs: list[dict], columns_to_check:
     check_title = "title" in cols
 
     code = entry.get("code", "")
+    if not isinstance(code, str):
+        code = "" if code is None else str(code)
     compact_code = re.sub(r"[^A-Z0-9]", "", code.upper())
-    title_norm = normalize_title_for_search(entry.get("title", ""))
+    title_val = entry.get("title", "")
+    if not isinstance(title_val, str):
+        title_val = "" if title_val is None else str(title_val)
+    title_norm = normalize_title_for_search(title_val)
 
     code_required = check_code and bool(code)
     title_required = check_title and bool(title_norm)
@@ -303,8 +319,14 @@ def load_entries_from_csv(csv_path: str) -> list[dict]:
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            code = (row.get("code") or "").strip()
-            title = (row.get("title") or "").strip()
+            code_val = row.get("code")
+            title_val = row.get("title")
+            if not isinstance(code_val, str):
+                code_val = "" if code_val is None else str(code_val)
+            if not isinstance(title_val, str):
+                title_val = "" if title_val is None else str(title_val)
+            code = (code_val or "").strip()
+            title = (title_val or "").strip()
             if not code and not title:
                 continue
             entries.append({
