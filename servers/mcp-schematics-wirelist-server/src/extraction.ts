@@ -33,6 +33,57 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
   return chunks;
 }
 
+const PHASE_ONLY_IDS = new Set(['L1', 'L2', 'L3', 'N', 'PE', 'PEN']);
+
+function isNumericCoordinate(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  return /^-?\d+(?:[.,]\d+)?$/.test(value.trim());
+}
+
+function sanitizeGaugeValue(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('mm')) {
+    return trimmed;
+  }
+
+  if (/^\d+\s*x\s*\d+/i.test(lower)) {
+    return trimmed;
+  }
+
+  const numeric = Number(lower.replace(',', '.'));
+  if (!Number.isNaN(numeric) && numeric > 0 && numeric <= 70) {
+    // Limite a 70mm² per evitare che rimandi pagina (es. 160.2) finiscano nella sezione
+    return trimmed;
+  }
+
+  return undefined;
+}
+
+function sanitizeLengthValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const numeric = Number(value.replace(',', '.'));
+    if (!Number.isNaN(numeric) && numeric > 0 && numeric < 1_000_000) {
+      return numeric;
+    }
+  }
+  return undefined;
+}
+
+function shouldDropWireId(id?: string): boolean {
+  if (!id) return false;
+  const trimmed = id.trim();
+  if (/^W/i.test(trimmed)) return true; // Escludi cavi Wxxx
+  if (PHASE_ONLY_IDS.has(trimmed.toUpperCase())) return true; // Evita ID solo di fase
+  return false;
+}
+
 function normalizeWires(wires: WireRecord[]): WireRecord[] {
   return wires
   .map(w => {
@@ -48,15 +99,41 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
       }
     }
 
+    if (typeof updated.id === 'string') {
+      updated.id = updated.id.trim();
+    }
+    if (typeof updated.from === 'string') {
+      updated.from = updated.from.trim();
+    }
+    if (typeof updated.to === 'string') {
+      updated.to = updated.to.trim();
+    }
+    if (typeof updated.cable === 'string') {
+      updated.cable = updated.cable.trim();
+    }
+    if (typeof updated.color === 'string') {
+      updated.color = updated.color.trim();
+    }
+    if (typeof updated.gauge === 'number') {
+      updated.gauge = String(updated.gauge);
+    }
+
+    updated.gauge = sanitizeGaugeValue(updated.gauge);
+    updated.length_mm = sanitizeLengthValue(updated.length_mm);
+
     return updated;
   })
+  // Escludi fili marcati come cavo o fasi
+  .filter(w => !shouldDropWireId(typeof w.id === 'string' ? w.id : undefined))
   // Scarta fili senza estremi o senza ID leggibile
   .filter(w => {
     const hasId = typeof w.id === 'string' && w.id.trim().length > 0;
     const hasFrom = typeof w.from === 'string' && w.from.trim().length > 0;
     const hasTo = typeof w.to === 'string' && w.to.trim().length > 0;
     return hasId && hasFrom && hasTo;
-  });
+  })
+  // Ignora fili con estremi che sono solo coordinate numeriche (posizionamenti, non sigle)
+  .filter(w => !isNumericCoordinate(w.from) && !isNumericCoordinate(w.to));
 }
 
 function normalizeComponents(components: ComponentRecord[]): ComponentRecord[] {
@@ -197,7 +274,7 @@ async function extractPdfText(filePath: string): Promise<{ fullText: string; pag
   }
 }
 
-async function convertPdfToImages(filePath: string, maxPages: number): Promise<string[]> {
+async function convertPdfToImages(filePath: string, startPage: number, endPage: number): Promise<string[]> {
   const images: string[] = [];
   const hasPdftoppm = await commandExists('pdftoppm');
   if (!hasPdftoppm) {
@@ -207,8 +284,10 @@ async function convertPdfToImages(filePath: string, maxPages: number): Promise<s
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wirelist-'));
   const prefix = path.join(tempDir, 'page');
-  log(`Converto PDF in PNG (max ${maxPages} pagine)`);
-  await execFileAsync('pdftoppm', ['-png', '-f', '1', '-l', String(maxPages), filePath, prefix]);
+  const first = Math.max(1, startPage);
+  const last = Math.max(first, endPage);
+  log(`Converto PDF in PNG (pagine ${first}-${last})`);
+  await execFileAsync('pdftoppm', ['-png', '-f', String(first), '-l', String(last), filePath, prefix]);
 
   const files = (await fs.readdir(tempDir)).filter(name => name.endsWith('.png')).sort();
   for (const file of files) {
@@ -261,6 +340,7 @@ interface PagePayload {
   pageText?: string;
   pageIndex: number;
   totalPages: number;
+  pageNumber?: number;
   model?: string;
   project?: string;
 }
@@ -280,22 +360,21 @@ async function extractWithModelBatch(params: {
     {
       type: 'text',
       text: [
-        'Estrarre lista fili e componenti da uno schema elettrico.',
-        `Stai ricevendo un batch di pagine (max 10). Estrai tutto il contenuto; indica per ogni riga il numero di pagina nel campo "page".`,
+        'Estrarre lista fili e componenti da uno schema elettrico seguendo le regole R26 (R1-R8: numeri fili rossi, frecce rosse, barre "\\\\", duplicazione per ganci, doppio elenco fili/componenti).',
+        'Stai ricevendo un batch di pagine (max 10). Indica per ogni riga il numero di pagina nel campo "page" riferito alla pagina originale.',
+        'Salta pagine di esempio/legenda (spesso marcate "ESEMPIO") e ignora collegamenti/componenti tratteggiati o indicati come esterni/opzionali; non estrarre fili da quei tratti.',
         'Se un elemento è descritto su più pagine, accumula quantità e mantieni i riferimenti coerenti; non duplicare oggetti già contati.',
         'Per ogni filo imposta chiaramente il punto di partenza (`from`) e di arrivo (`to`) come sigle/morsetti/dispositivi.',
         'Per ogni componente aggiungi il campo "wires": array di ID o sigle dei fili collegati (se noti).',
-        'Non inventare nomi o suffissi: usa esattamente le sigle viste.',
         'Pattern importante: se trovi "105.8 / 24", l\'ID filo è "24" e la sezione/gauge è "105.8"; non creare nomi come "105.8_L1" o "L1".',
         'Per componenti come "-QM102/1" il riferimento è "QM102"; il suffisso "/1" va in note o nel terminale, non cambiare il nome in "L1".',
-        'Mantieni le sigle esatte dei disegni (maiuscole/minuscole) e lascia vuoto se non sicuro.',
+        'Sezione/gauge: inseriscila solo se appare in chiaro (es. "1,5 mm²", "2x4 mm2", AWG). Rimandi pagina/posizionamenti (es. 160.2, 108.8) NON sono sezioni: lascia vuote Sezione/Colore/Lunghezza se non esplicitate sul filo.',
+        'Non inventare nomi o suffissi: usa esattamente le sigle viste. Se un capo è solo una coordinata numerica (105.8, 157.4) o manca un capo, non inserire la riga.',
+        'Escludi fili con ID che iniziano per "W" o ID solo di fase (L1/L2/L3/N/PE). NON creare ID con prefissi non visti o combinazioni gauge+fase (es. "106.8_L1").',
         'Non indovinare: se un dato non è leggibile o manca, lascia il campo vuoto/null. Non proporre ID o collegamenti ipotetici.',
         'Non aggiungere suffissi o prefissi mai visti nell\'immagine/testo. Riporta solo ciò che è visibile.',
-        'Se un campo sembra ambiguo (es. testo tagliato), lascia vuoto invece di inventare.',
-        'NON creare ID con prefissi "W" o combinazioni gauge+fase (es. "106.8_L1") se non appaiono esattamente nel disegno.',
         'I valori ammessi per ID/Ref devono apparire testualmente nell\'immagine o nel testo estratto; se non li trovi, lascia vuoto.',
-        'Le fasi L1/L2/L3 non vanno usate come ID se non sono segnate come identificativo del filo nel disegno.',
-        'Se vedi una notazione come "106.8 / 24", l\'ID resti "24" (non L1/L2/L3, non W...), se non c\'è ID chiaro lascia vuoto.',
+        'Se un campo sembra ambiguo (es. testo tagliato), lascia vuoto invece di inventare.',
         'Attenzione: numeri come "134.8", "157.4" sono sezioni/quote dei cavi, NON codici componente: non creare componenti con ref numerici o solo decimali.',
         'Ogni filo deve avere sia `from` sia `to`: se non riesci a leggere almeno un capo, NON inserire la riga.',
         'Per i componenti, usa solo riferimenti leggibili; se non puoi associare fili credibili, lascia vuoto il campo wires o ometti la riga.',
@@ -318,15 +397,17 @@ async function extractWithModelBatch(params: {
   }
 
   params.pages.forEach(page => {
+    const pageLabel = page.pageNumber ?? (page.pageIndex + 1);
+    const slotLabel = `${page.pageIndex + 1}/${page.totalPages}`;
     content.push({
       type: 'text',
-      text: `Pagina ${page.pageIndex + 1} di ${page.totalPages}`
+      text: `Pagina originale ${pageLabel} (slot ${slotLabel})`
     });
 
     if (page.pageText) {
       content.push({
         type: 'text',
-        text: `Testo pagina ${page.pageIndex + 1} (troncato):\n${page.pageText}`
+        text: `Testo pagina ${pageLabel} (troncato):\n${page.pageText}`
       });
     }
 
@@ -539,9 +620,14 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     input.output_excel_path || path.join(process.cwd(), 'outputs', `wirelist-${Date.now()}.xlsx`)
   );
 
+  const startPage = Math.max(1, input.start_page ?? 1);
   const maxPages = input.max_pages ?? Number(process.env.DEFAULT_MAX_PAGES || 3);
-  const useVision = input.use_vision ?? true;
   const boundedMaxPages = Math.min(maxPages, 1000);
+  const requestedEnd = input.end_page ? Math.max(input.end_page, startPage) : undefined;
+  const endPage = requestedEnd
+    ? Math.min(requestedEnd, startPage + boundedMaxPages - 1)
+    : startPage + boundedMaxPages - 1;
+  const useVision = input.use_vision ?? true;
 
   let rawText = '';
   let pageTexts: string[] = [];
@@ -551,11 +637,16 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
   try {
     if (ext === '.pdf') {
       const pdfText = await extractPdfText(resolvedPath);
-      rawText = pdfText.fullText;
-      pageTexts = pdfText.pageTexts;
+      const startIdx = Math.max(0, startPage - 1);
+      const endIdx = Math.min(pdfText.pageTexts.length, endPage);
+      pageTexts = pdfText.pageTexts.slice(startIdx, endIdx);
+      rawText = pageTexts.length ? pageTexts.join('\n') : pdfText.fullText;
+      if (startIdx >= pdfText.pageTexts.length && pdfText.pageTexts.length) {
+        warnings.push(`start_page=${startPage} oltre il numero di pagine (${pdfText.pageTexts.length}).`);
+      }
 
       if (useVision) {
-        images = await convertPdfToImages(resolvedPath, boundedMaxPages);
+        images = await convertPdfToImages(resolvedPath, startPage, endPage);
         if (!images.length) {
           warnings.push('Impossibile convertire il PDF in immagini: assicurati che poppler-utils/pdftoppm sia installato.');
         }
@@ -579,26 +670,28 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
   let wires: WireRecord[] = [];
   let components: ComponentRecord[] = [];
-  const pagesCount = images.length || pageTexts.length || (rawText ? 1 : undefined);
 
   if (process.env.OPENAI_API_KEY) {
     try {
+      const textualPages = pageTexts.length ? pageTexts : [textForModel];
       const pageItems = images.length
         ? images.map((img, i) => ({
             pageImage: img,
-            pageText: pageTexts[i] || '',
+            pageText: textualPages[i] ?? textForModel,
             pageIndex: i,
             totalPages: images.length,
+            pageNumber: startPage + i,
             model: input.model,
             project: input.project
           }))
-        : [{
-            pageText: textForModel,
-            pageIndex: 0,
-            totalPages: 1,
+        : textualPages.map((text, i) => ({
+            pageText: text,
+            pageIndex: i,
+            totalPages: textualPages.length,
+            pageNumber: startPage + i,
             model: input.model,
             project: input.project
-          }];
+          }));
 
       const batches = chunkArray(pageItems, BATCH_PAGE_LIMIT);
       log(`Invio ${pageItems.length} pagine al modello in ${batches.length} batch (max ${BATCH_PAGE_LIMIT} per richiesta, concorrenza ${BATCH_CONCURRENCY})`);
@@ -608,7 +701,8 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
           const textToUse = p.pageText || textForModel;
           const { text: truncatedText, truncated } = truncateForModel(textToUse);
           if (truncated) {
-            warnings.push(`Pagina ${p.pageIndex + 1}: testo troncato per il modello (limite 12k caratteri).`);
+            const label = p.pageNumber ?? (p.pageIndex + 1);
+            warnings.push(`Pagina ${label}: testo troncato per il modello (limite 12k caratteri).`);
           }
           return {
             ...p,
@@ -654,6 +748,8 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
       wires = heuristic;
     }
   }
+
+  const pagesCount = images.length || pageTexts.length || (rawText ? Math.max(1, endPage - startPage + 1) : undefined);
 
   const metadata: ExtractionMetadata = {
     source_file: resolvedPath,

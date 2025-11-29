@@ -35,6 +35,7 @@ Input (tutti JSON-schema, validati con Zod):
 - `file_path` (stringa, richiesto): percorso a un PDF/immagine con lo schema elettrico.
 - `output_excel_path` (stringa, opzionale): dove salvare l'xlsx generato (default `./outputs/wirelist-<timestamp>.xlsx`).
 - `project` / `note` (stringhe, opzionali): metadati copiati nel foglio INDICAZIONI.
+- `start_page` / `end_page` (int, opzionali): limita l'estrazione a un intervallo di pagine (default da pagina 1, rispettando `max_pages`).
 - `max_pages` (int, opzionale): numero di pagine PDF da convertire in immagini per l'OCR (default 3, fino a 1000).
 - `use_vision` (boolean, opzionale, default true): se convertire il PDF in immagini quando il testo è scarso.
 - `add_raw_text_sheet` (boolean, opzionale, default true): aggiunge un foglio con il testo grezzo estratto.
@@ -49,3 +50,5 @@ Output:
 - Le pagine PDF vengono convertite in immagini (fino a `max_pages`) e ogni pagina viene inviata al modello singolarmente (una chiamata per pagina), mantenendo l’ordine. Il testo estratto viene comunque passato come contesto per ciascuna pagina.
 - In assenza di `OPENAI_API_KEY` viene comunque creato un Excel vuoto/precompilato con il testo grezzo, ma l'estrazione strutturata non può funzionare.
 - Adattare i campi del workbook modificando `buildWorkbook` in `src/extraction.ts` per replicare ulteriormente gli schemi in `filenewmpc/`.
+- È possibile limitare l'estrazione a un intervallo di pagine con `start_page`/`end_page` (utile per saltare pagine di esempio/legenda); l'intervallo rispetta comunque `max_pages`.
+- Post-process: vengono scartati fili con ID che iniziano per `W`, ID solo di fase (L1/L2/L3/N/PE) o estremi che sono solo coordinate numeriche. La sezione viene mantenuta solo se esplicita (mm²/AWG/x...); valori ambigui come rimandi pagina vengono lasciati vuoti.

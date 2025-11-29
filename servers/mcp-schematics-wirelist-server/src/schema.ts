@@ -5,6 +5,8 @@ export const ExtractWirelistSchema = z.object({
   output_excel_path: z.string().optional(),
   project: z.string().optional(),
   note: z.string().optional(),
+  start_page: z.number().int().positive().default(1).optional(),
+  end_page: z.number().int().positive().optional(),
   max_pages: z.number().int().positive().max(1000).default(3).optional(),
   use_vision: z.boolean().default(true).optional(),
   add_raw_text_sheet: z.boolean().default(true).optional(),

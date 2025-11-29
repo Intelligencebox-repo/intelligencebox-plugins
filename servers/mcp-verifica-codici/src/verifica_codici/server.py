@@ -5,7 +5,7 @@ import sys
 import re
 import csv
 import time
-from typing import List
+from typing import Any, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import necessari da Pydantic per definire i parametri
@@ -21,6 +21,7 @@ from mcp.types import Tool, ErrorData, TextContent, INTERNAL_ERROR, INVALID_PARA
 from .script1 import estrai_elenco_documenti
 from .script2 import recupera_percorso_file
 from .script5 import verifica_codici
+from .rag_client import query_documents
 
 # Import per la validazione con cartelle
 from .code_extractor_folders import FolderCodeExtractor
@@ -42,7 +43,10 @@ class ExtractTableParams(BaseModel):
 class ValidateFoldersParams(BaseModel):
     documents_folder: str = Field(..., description="Percorso alla cartella contenente i PDF dei documenti da validare (es. '/dataai/collection_name').")
     master_list_pdf: str = Field(..., description="Percorso al file PDF contenente l'elenco master dei documenti attesi (es. '/dataai/collection_name/elenco-documenti.pdf').")
-    mode: str | None = Field(default="text_search", description="Strategia di validazione: 'text_search' per estrarre la tabella dal PDF elenco e cercare codice/titolo nel testo dei PDF; 'vlm' per la logica precedente basata su OCR/VLM.")
+    mode: str | None = Field(default="rag_query", description="Strategia di validazione: 'rag_query' (default) usa il servizio di query già indicizzato; 'text_search' scansiona i PDF localmente; 'vlm' usa OCR/VLM precedente.")
+    collection_id: str | None = Field(default=None, description="Collection ID da interrogare quando mode='rag_query'. Se assente, usa il basename di documents_folder.")
+    query_limit: int | None = Field(default=5, description="Numero di documenti da recuperare per query in modalità rag_query.")
+    search_mode: str | None = Field(default="standard", description="Search mode da passare all'endpoint di query (rag_query).")
     max_pages_to_scan: int | None = Field(default=3, description="Numero massimo di pagine da leggere per ogni PDF nella modalità text_search (None per tutte le pagine).")
     columns_to_check: list[str] | None = Field(default=None, description="Colonne da verificare nei PDF in modalità text_search. Supportate: 'code', 'title' (alias 'description'). Default: entrambe.")
     exclude_files: list[str] | None = Field(default=None, description="Lista di file (basename) da escludere dal controllo in modalità text_search (es. l'elenco documenti stesso).")
@@ -51,6 +55,10 @@ class ValidateFoldersParams(BaseModel):
 class CheckDocumentsParams(BaseModel):
     documents_folder: str = Field(..., description="Cartella con i PDF da controllare.")
     entries: list[dict] | str = Field(..., description="Lista di oggetti {code,title,...}, stringa JSON della lista oppure percorso a file CSV/JSON con i codici.")
+    mode: str | None = Field(default="rag_query", description="Modalità: 'rag_query' (default) usa l'endpoint di query esistente; 'text_search' legge i PDF localmente.")
+    collection_id: str | None = Field(default=None, description="Collection ID da interrogare quando mode='rag_query'. Se assente, usa il basename di documents_folder.")
+    query_limit: int | None = Field(default=5, description="Numero di risultati da richiedere per query in rag_query.")
+    search_mode: str | None = Field(default="standard", description="Search mode da passare al servizio di query.")
     max_pages_to_scan: int | None = Field(default=3, description="Numero massimo di pagine da leggere per ogni PDF (None per tutte le pagine).")
     columns_to_check: list[str] | None = Field(default=None, description="Colonne da verificare nei PDF. Supportate: 'code', 'title' (alias 'description'). Default: entrambe.")
     exclude_files: list[str] | None = Field(default=None, description="Lista di file (basename) da escludere dal controllo (es. l'elenco documenti).")
@@ -148,6 +156,36 @@ def load_entries(entries_param: list[dict] | str) -> list[dict]:
             "page": item.get("page"),
         })
     return cleaned
+
+
+def derive_collection_id(documents_folder: str | None, explicit_collection: str | None) -> str | None:
+    """Ricava il collection_id partendo dall'input esplicito o dal basename della cartella."""
+    if explicit_collection and str(explicit_collection).strip():
+        return str(explicit_collection).strip()
+    if documents_folder:
+        folder = str(documents_folder).rstrip("/\\")
+        return os.path.basename(folder)
+    return None
+
+
+async def send_progress(server: Server, current: float, total: float | None = None, label: str | None = None):
+    """
+    Invia notifiche di avanzamento MCP se il client ha fornito progressToken.
+    """
+    try:
+        ctx = server.request_context
+    except LookupError:
+        if label:
+            print(f"[PROGRESS] {current}/{total}: {label}", file=sys.stderr, flush=True)
+        return
+
+    if ctx.meta and ctx.meta.progressToken is not None:
+        try:
+            await ctx.session.send_progress_notification(ctx.meta.progressToken, current, total)
+        except Exception as exc:
+            print(f"[WARN] Progress notification failed: {exc}", file=sys.stderr, flush=True)
+    if label:
+        print(f"[PROGRESS] {current}/{total}: {label}", file=sys.stderr, flush=True)
 
 
 def extract_text_from_pdf(pdf_path: str, max_pages: int | None = None) -> str:
@@ -297,6 +335,136 @@ def match_entry_to_pdfs(entry: dict, scanned_pdfs: list[dict], columns_to_check:
                 break
 
     return best_match
+
+
+def _stringify_field(value: Any) -> str:
+    if isinstance(value, list):
+        return " ".join([v for v in value if isinstance(v, str)])
+    if value is None:
+        return ""
+    return str(value)
+
+
+def flatten_doc_text(doc: dict) -> dict:
+    """Estrae testo aggregato e info filename da un documento di risposta RAG."""
+    text_parts: list[str] = []
+
+    for key in ("page_content", "content", "text", "chunk", "chunk_text"):
+        val = doc.get(key)
+        str_val = _stringify_field(val)
+        if str_val:
+            text_parts.append(str_val)
+
+    metadata = doc.get("metadata") or {}
+    if isinstance(metadata, dict):
+        for key in ("text", "content", "chunk", "chunk_text", "description", "title", "body"):
+            str_val = _stringify_field(metadata.get(key))
+            if str_val:
+                text_parts.append(str_val)
+
+    combined = " ".join([t for t in text_parts if t]).strip()
+    upper = combined.upper()
+    lower = normalize_title_for_search(combined)
+    compact = re.sub(r"[^A-Z0-9]", "", upper)
+
+    file_path = None
+    if isinstance(metadata, dict):
+        file_path = (
+            metadata.get("file_path")
+            or metadata.get("path")
+            or metadata.get("source")
+            or metadata.get("filename")
+        )
+    file_path = file_path or doc.get("file_path") or doc.get("source")
+    filename = os.path.basename(file_path) if file_path else ""
+
+    return {
+        "text_upper": upper,
+        "text_lower": lower,
+        "text_compact": compact,
+        "file_path": file_path or "",
+        "filename": filename or "",
+        "file_upper": (filename or "").upper(),
+        "file_lower": (filename or "").lower(),
+        "file_compact": re.sub(r"[^A-Z0-9]", "", (filename or "").upper()),
+    }
+
+
+async def match_entry_via_rag(
+    entry: dict,
+    collection_id: str,
+    limit: int = 5,
+    search_mode: str | None = "standard",
+    columns_to_check: list[str] | None = None,
+) -> dict | None:
+    """Interroga il servizio di query e verifica presenza di code/title nel testo indicizzato."""
+    code = entry.get("code", "")
+    if not isinstance(code, str):
+        code = "" if code is None else str(code)
+    code_compact = normalize_code_for_search(code)
+
+    title_val = entry.get("title", "")
+    if not isinstance(title_val, str):
+        title_val = "" if title_val is None else str(title_val)
+    title_norm = normalize_title_for_search(title_val)
+
+    cols = normalize_columns(columns_to_check)
+    check_code = "code" in cols
+    check_title = "title" in cols
+
+    query_text = " ".join([part for part in [code, title_val] if part]).strip() or code or title_val
+    docs = await query_documents(
+        query=query_text,
+        collection_id=collection_id,
+        limit=limit or 5,
+        search_mode=search_mode or "standard",
+    )
+
+    if not isinstance(docs, list):
+        return None
+
+    for doc in docs:
+        flat = flatten_doc_text(doc)
+
+        code_found = bool(check_code and code_compact and (
+            code_compact in flat["text_compact"] or code_compact in flat["file_compact"]
+        ))
+
+        title_found = bool(check_title and title_norm and (
+            title_norm in flat["text_lower"] or title_norm in flat["file_lower"]
+        ))
+
+        code_required = check_code and bool(code_compact)
+        title_required = check_title and bool(title_norm)
+
+        status = None
+        if code_required and title_required:
+            if code_found and title_found:
+                status = "matched"
+            elif code_found or title_found:
+                status = "partial"
+        elif code_required:
+            if code_found:
+                status = "code_found"
+        elif title_required:
+            if title_found:
+                status = "title_found"
+
+        if status:
+            return {
+                "code": code,
+                "title": title_val,
+                "matched_file": flat["filename"] or flat["file_path"],
+                "file_path": flat["file_path"],
+                "status": status,
+                "code_found": code_found,
+                "title_found": title_found,
+                "query": query_text,
+                "score": doc.get("score"),
+                "checked_columns": cols,
+            }
+
+    return None
 
 
 async def run_text_check(entries: list[dict], documents_folder: str, max_pages: int | None, columns_to_check: list[str] | None = None, exclude_files: list[str] | None = None, recursive: bool = True) -> list[TextContent]:
@@ -577,6 +745,70 @@ async def handle_content_scan(arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
 
 
+async def validate_folders_rag_mode(params: ValidateFoldersParams, server: Server) -> list[TextContent]:
+    """Modalità di verifica basata esclusivamente su RAG/query (niente OCR locale)."""
+    list_parser = MasterListParser()
+    entries = await asyncio.to_thread(list_parser.parse_table_entries, params.master_list_pdf)
+    if not entries:
+        codes = await asyncio.to_thread(list_parser.parse_master_list, params.master_list_pdf)
+        entries = [{"code": code, "title": "", "row": [], "page": None} for code in codes]
+    entries = load_entries(entries)
+
+    collection_id = derive_collection_id(params.documents_folder, params.collection_id)
+    if not collection_id:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message="collection_id mancante (fornisci esplicito o basename della cartella)."))
+
+    total = len(entries) or 1
+    await send_progress(server, 0, total, "Avvio verifica via query")
+
+    matches: list[dict] = []
+    missing: list[dict] = []
+    query_errors: list[str] = []
+
+    for idx, entry in enumerate(entries, start=1):
+        try:
+            match = await match_entry_via_rag(
+                entry,
+                collection_id=collection_id,
+                limit=params.query_limit or 5,
+                search_mode=params.search_mode or "standard",
+                columns_to_check=params.columns_to_check,
+            )
+        except Exception as exc:
+            match = None
+            query_errors.append(f"{entry.get('code') or entry.get('title')}: {exc}")
+
+        if match:
+            matches.append(match)
+        else:
+            missing.append({"code": entry.get("code"), "title": entry.get("title"), "page": entry.get("page")})
+
+        await send_progress(server, idx, total, f"Verifica {idx}/{total}")
+
+    await send_progress(server, total, total, "Verifica completata")
+
+    summary = {
+        "expected_entries": len(entries),
+        "matches": len([m for m in matches if m["status"] == "matched"]),
+        "partial": len([m for m in matches if m["status"] != "matched"]),
+        "missing": len(missing),
+        "collection_id": collection_id,
+        "query_limit": params.query_limit or 5,
+        "search_mode": params.search_mode or "standard",
+        "mode": "rag_query",
+        "errors": len(query_errors),
+    }
+
+    result = {
+        "summary": summary,
+        "matches": matches[:100],
+        "missing": missing[:100],
+        "query_errors": query_errors[:50],
+    }
+
+    return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+
 async def validate_folders_text_mode(params: ValidateFoldersParams) -> list[TextContent]:
     """Nuova modalità: estrai tabella dal PDF elenco e cerca codice/titolo nel testo dei PDF."""
     list_parser = MasterListParser()
@@ -591,13 +823,18 @@ async def validate_folders_text_mode(params: ValidateFoldersParams) -> list[Text
 
 
 # --- HANDLER PER VALIDATE_FOLDERS ---
-async def handle_validate_folders(arguments: dict) -> list[TextContent]:
+async def handle_validate_folders(arguments: dict, server: Server | None = None) -> list[TextContent]:
     """Handler per il tool validate_folders"""
     try:
         # Valida i parametri
         params = ValidateFoldersParams(**arguments)
 
-        mode = (params.mode or "text_search").lower().strip()
+        mode = (params.mode or "rag_query").lower().strip()
+        if mode == "rag_query":
+            if not server:
+                raise McpError(ErrorData(code=INTERNAL_ERROR, message="Server non disponibile per progress notifications"))
+            return await validate_folders_rag_mode(params, server)
+
         if mode == "text_search":
             return await validate_folders_text_mode(params)
 
@@ -729,9 +966,74 @@ async def handle_extract_table(arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=json.dumps({"entries": entries, "csv_path": csv_path}, indent=2, ensure_ascii=False))]
 
 
-async def handle_check_documents(arguments: dict) -> list[TextContent]:
+async def check_documents_rag_mode(params: CheckDocumentsParams, server: Server) -> list[TextContent]:
+    """Verifica via query RAG senza leggere i PDF localmente."""
+    entries = load_entries(params.entries)
+    collection_id = derive_collection_id(params.documents_folder, params.collection_id)
+    if not collection_id:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message="collection_id mancante (fornisci esplicito o basename della cartella)."))
+
+    cols = normalize_columns(params.columns_to_check)
+    total = len(entries) or 1
+    await send_progress(server, 0, total, "Avvio verifica via query")
+
+    matches: list[dict] = []
+    missing: list[dict] = []
+    query_errors: list[str] = []
+
+    for idx, entry in enumerate(entries, start=1):
+        try:
+            match = await match_entry_via_rag(
+                entry,
+                collection_id=collection_id,
+                limit=params.query_limit or 5,
+                search_mode=params.search_mode or "standard",
+                columns_to_check=cols,
+            )
+        except Exception as exc:
+            match = None
+            query_errors.append(f"{entry.get('code') or entry.get('title')}: {exc}")
+
+        if match:
+            matches.append(match)
+        else:
+            missing.append({"code": entry.get("code"), "title": entry.get("title")})
+
+        await send_progress(server, idx, total, f"Verifica {idx}/{total}")
+
+    await send_progress(server, total, total, "Verifica completata")
+
+    summary = {
+        "entries": len(entries),
+        "matches": len([m for m in matches if m["status"] == "matched"]),
+        "partial": len([m for m in matches if m["status"] != "matched"]),
+        "missing": len(missing),
+        "collection_id": collection_id,
+        "query_limit": params.query_limit or 5,
+        "search_mode": params.search_mode or "standard",
+        "mode": "rag_query",
+        "errors": len(query_errors),
+    }
+
+    result = {
+        "summary": summary,
+        "matches": matches[:100],
+        "missing": missing[:100],
+        "query_errors": query_errors[:50],
+    }
+
+    return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+
+async def handle_check_documents(arguments: dict, server: Server | None = None) -> list[TextContent]:
     """Verifica una cartella di PDF usando entries già estratte."""
     params = CheckDocumentsParams(**arguments)
+    mode = (params.mode or "rag_query").lower().strip()
+    if mode == "rag_query":
+        if not server:
+            raise McpError(ErrorData(code=INTERNAL_ERROR, message="Server non disponibile per progress notifications"))
+        return await check_documents_rag_mode(params, server)
+
     entries = load_entries(params.entries)
     return await run_text_check(entries, params.documents_folder, params.max_pages_to_scan, params.columns_to_check, params.exclude_files, params.recursive)
 
@@ -760,7 +1062,7 @@ def create_verifica_codici_server() -> Server:
             ),
             Tool(
                 name="check_documents",
-                description="Controlla i PDF in cartella cercando code/title nel testo/nome file; entries accetta lista, stringa JSON o percorso CSV/JSON; columns_to_check per limitare a code/title; exclude_files per saltare PDF come l'elenco documenti; recursive=True per includere sottocartelle.",
+                description="Controlla i documenti usando entries già estratte. mode='rag_query' (default) interroga il servizio di query sul collection_id; mode='text_search' legge i PDF localmente. columns_to_check per limitare a code/title; exclude_files per saltare PDF come l'elenco documenti; recursive=True per includere sottocartelle.",
                 inputSchema=CheckDocumentsParams.model_json_schema(),
             ),
             Tool(
@@ -770,7 +1072,7 @@ def create_verifica_codici_server() -> Server:
             ),
             Tool(
                 name="validate_folders",
-                description="End-to-end: estrae tabella dal PDF elenco e verifica i PDF in cartella. mode='text_search' (default) usa codice/titolo; columns_to_check limita i campi; exclude_files per saltare PDF (es. elenco documenti); recursive per includere sottocartelle. mode='vlm' usa OCR/VLM precedente.",
+                description="End-to-end: estrae tabella dal PDF elenco e verifica i PDF in cartella. mode='rag_query' (default) interroga il servizio indicizzato; mode='text_search' legge i PDF localmente; mode='vlm' usa OCR/VLM precedente.",
                 inputSchema=ValidateFoldersParams.model_json_schema(),
             )
         ]
@@ -779,11 +1081,11 @@ def create_verifica_codici_server() -> Server:
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if name == "validate_folders":
-            return await handle_validate_folders(arguments)
+            return await handle_validate_folders(arguments, server)
         if name == "extract_table":
             return await handle_extract_table(arguments)
         if name == "check_documents":
-            return await handle_check_documents(arguments)
+            return await handle_check_documents(arguments, server)
         if name == "content_scan":
             return await handle_content_scan(arguments)
         if name != "start_verification":

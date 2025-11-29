@@ -17,6 +17,18 @@
       "required": true,
       "default": "http://host.docker.internal:8090/query"
     },
+    "QUERY_HOST": {
+      "type": "string",
+      "description": "Host/base URL del servizio di query già indicizzato (es. http://host.docker.internal:8090 o http://host.docker.internal:3001).",
+      "required": false,
+      "default": "http://host.docker.internal:8090"
+    },
+    "QUERY_ENDPOINT": {
+      "type": "string",
+      "description": "Path dell'endpoint di query (es. '/query' o '/api/collections/query').",
+      "required": false,
+      "default": "/query"
+    },
     "OLLAMA_URL": {
       "type": "string",
       "description": "Endpoint HTTP per il modello VLM servito da Ollama (es. http://localhost:11434 in sviluppo, http://host.docker.internal:11434 in container).",
