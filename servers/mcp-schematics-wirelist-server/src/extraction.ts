@@ -9,7 +9,6 @@ import XLSX from 'xlsx';
 import { ExtractWirelistInput } from './schema.js';
 
 const execFileAsync = promisify(execFile);
-const MAX_TEXT_FOR_MODEL = 12000;
 const BATCH_PAGE_LIMIT = 1; // invia una pagina per richiesta
 const BATCH_CONCURRENCY = 30; // concorrenza elevata (30 richieste massimo)
 
@@ -38,6 +37,15 @@ const PHASE_ONLY_IDS = new Set(['L1', 'L2', 'L3', 'N', 'PE', 'PEN']);
 function isNumericCoordinate(value: unknown): boolean {
   if (typeof value !== 'string') return false;
   return /^-?\d+(?:[.,]\d+)?$/.test(value.trim());
+}
+
+function markRimandoEndpoint(endpoint: unknown, note?: string): { endpoint: string | undefined; note?: string } {
+  if (typeof endpoint !== 'string') return { endpoint: endpoint as any, note };
+  if (!isNumericCoordinate(endpoint)) return { endpoint, note };
+
+  const labeled = `rimando ${endpoint.trim()}`;
+  const combinedNote = [note, `rimando/coord: ${endpoint.trim()}`].filter(Boolean).join(' | ');
+  return { endpoint: labeled, note: combinedNote };
 }
 
 function sanitizeGaugeValue(value: unknown): string | undefined {
@@ -118,6 +126,14 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
       updated.gauge = String(updated.gauge);
     }
 
+    // Se un capo è solo numerico (rimando pagina/coord) e l'altro no, etichetta come "rimando <valore>" per non scartarlo
+    const fromMark = markRimandoEndpoint(updated.from, updated.note);
+    updated.from = fromMark.endpoint;
+    updated.note = fromMark.note;
+    const toMark = markRimandoEndpoint(updated.to, updated.note);
+    updated.to = toMark.endpoint;
+    updated.note = toMark.note;
+
     updated.gauge = sanitizeGaugeValue(updated.gauge);
     updated.length_mm = sanitizeLengthValue(updated.length_mm);
 
@@ -132,8 +148,8 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
     const hasTo = typeof w.to === 'string' && w.to.trim().length > 0;
     return hasId && hasFrom && hasTo;
   })
-  // Ignora fili con estremi che sono solo coordinate numeriche (posizionamenti, non sigle)
-  .filter(w => !isNumericCoordinate(w.from) && !isNumericCoordinate(w.to));
+  // Ignora fili con entrambi gli estremi solo coordinate numeriche (posizionamenti, non sigle)
+  .filter(w => !(isNumericCoordinate(w.from) && isNumericCoordinate(w.to)));
 }
 
 function normalizeComponents(components: ComponentRecord[]): ComponentRecord[] {
@@ -304,14 +320,8 @@ async function loadImageAsBase64(filePath: string): Promise<string> {
 }
 
 function truncateForModel(text: string): { text: string; truncated: boolean } {
-  if (text.length <= MAX_TEXT_FOR_MODEL) {
-    return { text, truncated: false };
-  }
-
-  return {
-    text: text.slice(0, MAX_TEXT_FOR_MODEL),
-    truncated: true
-  };
+  // No truncation: keep the interface but always return the original text
+  return { text, truncated: false };
 }
 
 function heuristicWireParse(text: string): WireRecord[] {
@@ -369,6 +379,7 @@ async function extractWithModelBatch(params: {
         'Pattern importante: se trovi "105.8 / 24", l\'ID filo è "24" e la sezione/gauge è "105.8"; non creare nomi come "105.8_L1" o "L1".',
         'Per componenti come "-QM102/1" il riferimento è "QM102"; il suffisso "/1" va in note o nel terminale, non cambiare il nome in "L1".',
         'Sezione/gauge: inseriscila solo se appare in chiaro (es. "1,5 mm²", "2x4 mm2", AWG). Rimandi pagina/posizionamenti (es. 160.2, 108.8) NON sono sezioni: lascia vuote Sezione/Colore/Lunghezza se non esplicitate sul filo.',
+        'Per i rimandi (es. "113.8 / 24.1" o frecce rosse con numeri di pagina): usa l\'ID filo (24.1) e metti come from/to il componente visibile; se il capo è solo un rimando di pagina, scrivi "rimando 113.8" (o simile) nel capo e nella nota per non perdere il collegamento.',
         'Non inventare nomi o suffissi: usa esattamente le sigle viste. Se un capo è solo una coordinata numerica (105.8, 157.4) o manca un capo, non inserire la riga.',
         'Escludi fili con ID che iniziano per "W" o ID solo di fase (L1/L2/L3/N/PE). NON creare ID con prefissi non visti o combinazioni gauge+fase (es. "106.8_L1").',
         'Non indovinare: se un dato non è leggibile o manca, lascia il campo vuoto/null. Non proporre ID o collegamenti ipotetici.',
@@ -407,7 +418,7 @@ async function extractWithModelBatch(params: {
     if (page.pageText) {
       content.push({
         type: 'text',
-        text: `Testo pagina ${pageLabel} (troncato):\n${page.pageText}`
+        text: `Testo pagina ${pageLabel}:\n${page.pageText}`
       });
     }
 
@@ -663,10 +674,8 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     throw new Error(`Impossibile leggere il file: ${error.message}`);
   }
 
-  const { text: textForModel, truncated } = truncateForModel(rawText);
-  if (truncated) {
-    warnings.push('Testo schemi troncato per il modello (limite 12k caratteri).');
-  }
+const { text: textForModel } = truncateForModel(rawText);
+  // No truncation applied; truncated is always false
 
   let wires: WireRecord[] = [];
   let components: ComponentRecord[] = [];
@@ -699,11 +708,7 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
       const processBatch = async (batch: typeof pageItems, batchIndex: number, totalBatches: number) => {
         const preparedPages = batch.map(p => {
           const textToUse = p.pageText || textForModel;
-          const { text: truncatedText, truncated } = truncateForModel(textToUse);
-          if (truncated) {
-            const label = p.pageNumber ?? (p.pageIndex + 1);
-            warnings.push(`Pagina ${label}: testo troncato per il modello (limite 12k caratteri).`);
-          }
+          const { text: truncatedText } = truncateForModel(textToUse);
           return {
             ...p,
             pageText: truncatedText
@@ -755,7 +760,7 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     source_file: resolvedPath,
     pages_used: pagesCount,
     text_chars: rawText.length,
-    truncated_text: truncated,
+    truncated_text: false,
     project: input.project,
     note: input.note,
     model: input.model || process.env.OPENAI_MODEL || 'gpt-4.1',
