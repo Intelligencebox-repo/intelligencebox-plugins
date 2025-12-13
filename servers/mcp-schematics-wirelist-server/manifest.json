@@ -3,7 +3,7 @@
   "name": "Schematics Wirelist Extractor",
   "description": "Estrae liste fili e componenti da schemi elettrici (PDF/immagini) e restituisce un file Excel multi‑foglio pronto per la produzione.",
   "author": "intelligencebox",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "icon": "⚡️",
   "category": "engineering",
   "tags": ["electrical", "schematics", "wirelist", "excel", "ocr"],
