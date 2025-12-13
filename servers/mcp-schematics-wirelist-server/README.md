@@ -8,9 +8,11 @@ Estrae liste fili e componenti da schemi elettrici (PDF/immagini) e genera un fi
 - `poppler-utils` e `tesseract-ocr` installati (già inclusi nell'immagine Docker) per convertire i PDF in immagini quando non contengono testo.
 - Variabili d'ambiente:
   - `OPENAI_API_KEY` (obbligatoria)
-- `OPENAI_MODEL` opzionale, default `gpt-4.1`
+- `OPENAI_MODEL` opzionale, default `gpt-5.2`
   - `OPENAI_BASE_URL` opzionale per endpoint compatibili OpenAI
   - `DEFAULT_MAX_PAGES` opzionale, default 3
+  - `PDF_RENDER_DPI` opzionale, default 300 (aumentare se i numeri rossi sono piccoli/difficili da leggere)
+  - `PDF_RENDER_TILE_GRID` opzionale, default 2 (es. 1=disattiva tile, 2=2x2, 3=3x3; utile per leggere numeri rossi molto piccoli/barrati)
 
 ## Sviluppo rapido
 

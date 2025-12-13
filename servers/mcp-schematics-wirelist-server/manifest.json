@@ -17,7 +17,7 @@
     },
     "OPENAI_MODEL": {
       "type": "string",
-      "description": "Model name (default: gpt-4.1).",
+      "description": "Model name (default: gpt-5.2).",
       "required": false
     },
     "OPENAI_BASE_URL": {
@@ -25,11 +25,23 @@
       "description": "Optional custom base URL for self-hosted API compatible with OpenAI.",
       "required": false
     },
+    "PDF_RENDER_DPI": {
+      "type": "number",
+      "description": "DPI usati per convertire le pagine PDF in immagini (default 300). Aumentare se i numeri rossi dei fili risultano troppo piccoli.",
+      "required": false,
+      "default": 300
+    },
+    "PDF_RENDER_TILE_GRID": {
+      "type": "number",
+      "description": "Numero di tile per lato per ogni pagina (default 2 => 2x2). Aumentare se i numeri rossi sono molto piccoli; usare 1 per disattivare i tile.",
+      "required": false,
+      "default": 2
+    },
     "DEFAULT_MAX_PAGES": {
       "type": "number",
       "description": "Numero massimo di pagine PDF da analizzare (fallback).",
       "required": false,
-      "default": 3
+      "default": 300
     }
   },
   "requirements": {

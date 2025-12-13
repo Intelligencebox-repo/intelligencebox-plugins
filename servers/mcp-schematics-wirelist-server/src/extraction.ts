@@ -11,6 +11,9 @@ import { ExtractWirelistInput } from './schema.js';
 const execFileAsync = promisify(execFile);
 const BATCH_PAGE_LIMIT = 1; // invia una pagina per richiesta
 const BATCH_CONCURRENCY = 30; // concorrenza elevata (30 richieste massimo)
+const DEFAULT_OPENAI_MODEL = 'gpt-5.2';
+const DEFAULT_PDF_RENDER_DPI = 300;
+const DEFAULT_PDF_TILE_GRID = 2; // 2x2 tiles by default to help read small red IDs
 
 function log(message: string): void {
   process.stderr.write(`[wirelist] ${message}\n`);
@@ -93,8 +96,29 @@ function shouldDropWireId(id?: string): boolean {
 }
 
 function normalizeWires(wires: WireRecord[]): WireRecord[] {
-  return wires
-  .map(w => {
+  const scored = (wire: WireRecord): number => {
+    const fields: (keyof WireRecord)[] = [
+      'id',
+      'from',
+      'to',
+      'cable',
+      'gauge',
+      'color',
+      'length_mm',
+      'terminal_a',
+      'terminal_b',
+      'note'
+    ];
+    return fields.reduce<number>((acc, field) => {
+      const val = wire[field];
+      if (typeof val === 'string') return acc + (val.trim() ? 1 : 0);
+      if (typeof val === 'number') return acc + (Number.isFinite(val) ? 1 : 0);
+      return acc;
+    }, 0);
+  };
+
+  const normalized = wires
+    .map(w => {
     const updated: WireRecord = { ...w };
 
     // Pattern tipo "105.8 / 24" o "108.8/L1" -> sezione = numero, ID = resto
@@ -138,22 +162,48 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
     updated.length_mm = sanitizeLengthValue(updated.length_mm);
 
     return updated;
-  })
-  // Escludi fili marcati come cavo o fasi
-  .filter(w => !shouldDropWireId(typeof w.id === 'string' ? w.id : undefined))
-  // Scarta fili senza estremi o senza ID leggibile
-  .filter(w => {
-    const hasId = typeof w.id === 'string' && w.id.trim().length > 0;
-    const hasFrom = typeof w.from === 'string' && w.from.trim().length > 0;
-    const hasTo = typeof w.to === 'string' && w.to.trim().length > 0;
-    return hasId && hasFrom && hasTo;
-  })
-  // Ignora fili con entrambi gli estremi solo coordinate numeriche (posizionamenti, non sigle)
-  .filter(w => !(isNumericCoordinate(w.from) && isNumericCoordinate(w.to)));
+  });
+
+  const filtered = normalized
+    // Escludi fili marcati come cavo o fasi
+    .filter(w => !shouldDropWireId(typeof w.id === 'string' ? w.id : undefined))
+    // Scarta fili senza estremi o senza ID leggibile
+    .filter(w => {
+      const hasId = typeof w.id === 'string' && w.id.trim().length > 0;
+      const hasFrom = typeof w.from === 'string' && w.from.trim().length > 0;
+      const hasTo = typeof w.to === 'string' && w.to.trim().length > 0;
+      return hasId && hasFrom && hasTo;
+    })
+    // Ignora fili con entrambi gli estremi solo coordinate numeriche (posizionamenti, non sigle)
+    .filter(w => !(isNumericCoordinate(w.from) && isNumericCoordinate(w.to)));
+
+  // Dedup: tiles/zoom can cause repeats; keep the best-populated row
+  const deduped = new Map<string, WireRecord>();
+  for (const wire of filtered) {
+    const id = typeof wire.id === 'string' ? wire.id.trim() : '';
+    const from = typeof wire.from === 'string' ? wire.from.trim() : '';
+    const to = typeof wire.to === 'string' ? wire.to.trim() : '';
+    const page = wire.page ?? '';
+    const endpoints = [from, to].sort((a, b) => a.localeCompare(b)).join('→');
+    const key = `${id}|${endpoints}|${page}`;
+
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, wire);
+      continue;
+    }
+
+    const mergedNote = [existing.note, wire.note].filter(Boolean).join(' | ');
+    const candidate = scored(wire) > scored(existing) ? { ...wire } : { ...existing };
+    if (mergedNote) candidate.note = mergedNote;
+    deduped.set(key, candidate);
+  }
+
+  return Array.from(deduped.values());
 }
 
 function normalizeComponents(components: ComponentRecord[]): ComponentRecord[] {
-  return components
+  const normalized = components
     // Filtra componenti evidentemente errati: ref solo numerico/decimale senza descrizione
     .filter(c => {
       if (!c) return false;
@@ -179,6 +229,46 @@ function normalizeComponents(components: ComponentRecord[]): ComponentRecord[] {
       }
       return updated;
     });
+
+  const deduped = new Map<string, ComponentRecord>();
+  for (const comp of normalized) {
+    const ref = typeof comp.ref === 'string' ? comp.ref.trim() : '';
+    if (!ref) continue;
+
+    const existing = deduped.get(ref);
+    if (!existing) {
+      deduped.set(ref, comp);
+      continue;
+    }
+
+    const merged: ComponentRecord = { ...existing };
+    const existingDesc = typeof existing.description === 'string' ? existing.description.trim() : '';
+    const newDesc = typeof comp.description === 'string' ? comp.description.trim() : '';
+    if (!existingDesc && newDesc) merged.description = newDesc;
+
+    const existingQty = typeof existing.quantity === 'number' ? existing.quantity : undefined;
+    const newQty = typeof comp.quantity === 'number' ? comp.quantity : undefined;
+    if (existingQty !== undefined && newQty !== undefined) merged.quantity = existingQty + newQty;
+    else if (existingQty === undefined && newQty !== undefined) merged.quantity = newQty;
+
+    const existingWires = Array.isArray(existing.wires) ? existing.wires : [];
+    const newWires = Array.isArray(comp.wires) ? comp.wires : [];
+    const mergedWires = Array.from(new Set([...existingWires, ...newWires].map(w => String(w).trim()).filter(Boolean)));
+    if (mergedWires.length) merged.wires = mergedWires;
+
+    const existingNote = typeof existing.note === 'string' ? existing.note.trim() : '';
+    const newNote = typeof comp.note === 'string' ? comp.note.trim() : '';
+    const mergedNote = [existingNote, newNote].filter(Boolean).join(' | ');
+    if (mergedNote) merged.note = mergedNote;
+
+    const existingPage = typeof existing.page === 'number' ? existing.page : undefined;
+    const newPage = typeof comp.page === 'number' ? comp.page : undefined;
+    if (existingPage === undefined && newPage !== undefined) merged.page = newPage;
+
+    deduped.set(ref, merged);
+  }
+
+  return Array.from(deduped.values());
 }
 
 async function runBatchPool<T>(items: T[], limit: number, worker: (item: T, index: number, total: number) => Promise<void>) {
@@ -290,28 +380,162 @@ async function extractPdfText(filePath: string): Promise<{ fullText: string; pag
   }
 }
 
-async function convertPdfToImages(filePath: string, startPage: number, endPage: number): Promise<string[]> {
-  const images: string[] = [];
+function getPdfRenderDpi(): number {
+  const raw = process.env.PDF_RENDER_DPI || process.env.PDF_IMAGE_DPI;
+  const parsed = raw ? Number(raw) : DEFAULT_PDF_RENDER_DPI;
+  if (!Number.isFinite(parsed)) return DEFAULT_PDF_RENDER_DPI;
+  return Math.min(600, Math.max(72, Math.round(parsed)));
+}
+
+function getPdfTileGrid(): number {
+  const raw = process.env.PDF_RENDER_TILE_GRID || process.env.PDF_TILE_GRID;
+  const parsed = raw ? Number(raw) : DEFAULT_PDF_TILE_GRID;
+  if (!Number.isFinite(parsed)) return DEFAULT_PDF_TILE_GRID;
+  const grid = Math.round(parsed);
+  if (grid <= 1) return 1;
+  return Math.min(4, Math.max(2, grid));
+}
+
+function readPngDimensions(buffer: Buffer): { width: number; height: number } | undefined {
+  if (buffer.length < 24) return undefined;
+  const signature = buffer.subarray(0, 8);
+  const pngSig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!signature.equals(pngSig)) return undefined;
+  // IHDR chunk starts at byte 8; width/height at byte 16/20
+  const width = buffer.readUInt32BE(16);
+  const height = buffer.readUInt32BE(20);
+  if (!width || !height) return undefined;
+  return { width, height };
+}
+
+interface PageZoomImage {
+  image: string;
+  label: string;
+}
+
+interface PageImageSet {
+  full: string;
+  zooms: PageZoomImage[];
+}
+
+function computeTileRects(params: { width: number; height: number; grid: number; overlapRatio?: number }): Array<{ x: number; y: number; w: number; h: number; label: string }> {
+  const grid = Math.max(1, params.grid);
+  const overlapRatio = params.overlapRatio ?? 0.06;
+  if (grid === 1) return [];
+
+  const tileW = Math.ceil(params.width / grid);
+  const tileH = Math.ceil(params.height / grid);
+  const overlapW = Math.max(0, Math.round(tileW * overlapRatio));
+  const overlapH = Math.max(0, Math.round(tileH * overlapRatio));
+  const rects: Array<{ x: number; y: number; w: number; h: number; label: string }> = [];
+
+  for (let row = 0; row < grid; row++) {
+    for (let col = 0; col < grid; col++) {
+      const x0 = Math.max(0, col * tileW - (col > 0 ? overlapW : 0));
+      const y0 = Math.max(0, row * tileH - (row > 0 ? overlapH : 0));
+      const x1 = Math.min(params.width, (col + 1) * tileW + (col < grid - 1 ? overlapW : 0));
+      const y1 = Math.min(params.height, (row + 1) * tileH + (row < grid - 1 ? overlapH : 0));
+      const w = Math.max(1, x1 - x0);
+      const h = Math.max(1, y1 - y0);
+      rects.push({
+        x: x0,
+        y: y0,
+        w,
+        h,
+        label: `Zoom tile r${row + 1}c${col + 1} (${grid}x${grid})`
+      });
+    }
+  }
+
+  return rects;
+}
+
+async function convertPdfToImageSets(filePath: string, startPage: number, endPage: number): Promise<PageImageSet[]> {
+  const pageSets: PageImageSet[] = [];
   const hasPdftoppm = await commandExists('pdftoppm');
   if (!hasPdftoppm) {
     log('pdftoppm non trovato: impossibile convertire PDF in immagini');
-    return images;
+    return pageSets;
   }
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wirelist-'));
   const prefix = path.join(tempDir, 'page');
   const first = Math.max(1, startPage);
   const last = Math.max(first, endPage);
-  log(`Converto PDF in PNG (pagine ${first}-${last})`);
-  await execFileAsync('pdftoppm', ['-png', '-f', String(first), '-l', String(last), filePath, prefix]);
+  const dpi = getPdfRenderDpi();
+  const tileGrid = getPdfTileGrid();
+  log(`Converto PDF in PNG (pagine ${first}-${last}, ${dpi} DPI, tileGrid=${tileGrid})`);
+  await execFileAsync('pdftoppm', ['-png', '-r', String(dpi), '-aa', 'yes', '-aaVector', 'yes', '-f', String(first), '-l', String(last), filePath, prefix]);
 
-  const files = (await fs.readdir(tempDir)).filter(name => name.endsWith('.png')).sort();
+  const files = (await fs.readdir(tempDir))
+    .filter(name => name.endsWith('.png'))
+    .sort((a, b) => {
+      const aNum = Number(a.match(/-(\d+)\.png$/)?.[1] ?? 0);
+      const bNum = Number(b.match(/-(\d+)\.png$/)?.[1] ?? 0);
+      return aNum - bNum || a.localeCompare(b);
+    });
+
+  const pageNumbers: number[] = [];
+  const pageDims: Array<{ width: number; height: number } | undefined> = [];
+
   for (const file of files) {
+    const match = file.match(/-(\d+)\.png$/);
+    const pageNum = match ? Number(match[1]) : undefined;
+    if (!pageNum) continue;
+
     const data = await fs.readFile(path.join(tempDir, file));
-    images.push(data.toString('base64'));
+    const dims = readPngDimensions(data);
+    pageNumbers.push(pageNum);
+    pageDims.push(dims);
+    pageSets.push({ full: data.toString('base64'), zooms: [] });
   }
 
-  return images;
+  if (tileGrid <= 1 || pageSets.length === 0) {
+    return pageSets;
+  }
+
+  // Generate zoom tiles per page to help the model read small red wire IDs (often "barrati").
+  for (let i = 0; i < pageSets.length; i++) {
+    const pageNum = pageNumbers[i];
+    const dims = pageDims[i];
+    if (!dims) continue;
+
+    const rects = computeTileRects({ width: dims.width, height: dims.height, grid: tileGrid });
+    for (let tileIndex = 0; tileIndex < rects.length; tileIndex++) {
+      const rect = rects[tileIndex];
+      const tilePrefix = path.join(tempDir, `tile-${String(pageNum).padStart(3, '0')}-${String(tileIndex + 1).padStart(2, '0')}`);
+      await execFileAsync('pdftoppm', [
+        '-png',
+        '-singlefile',
+        '-r',
+        String(dpi),
+        '-aa',
+        'yes',
+        '-aaVector',
+        'yes',
+        '-f',
+        String(pageNum),
+        '-l',
+        String(pageNum),
+        '-x',
+        String(rect.x),
+        '-y',
+        String(rect.y),
+        '-W',
+        String(rect.w),
+        '-H',
+        String(rect.h),
+        filePath,
+        tilePrefix
+      ]);
+
+      const tilePath = `${tilePrefix}.png`;
+      const tileData = await fs.readFile(tilePath);
+      pageSets[i].zooms.push({ image: tileData.toString('base64'), label: rect.label });
+    }
+  }
+
+  return pageSets;
 }
 
 async function loadImageAsBase64(filePath: string): Promise<string> {
@@ -347,6 +571,7 @@ function heuristicWireParse(text: string): WireRecord[] {
 
 interface PagePayload {
   pageImage?: string;
+  pageZoomImages?: PageZoomImage[];
   pageText?: string;
   pageIndex: number;
   totalPages: number;
@@ -360,7 +585,7 @@ async function extractWithModelBatch(params: {
   model?: string;
   project?: string;
 }): Promise<ModelExtraction> {
-  const model = params.model || process.env.OPENAI_MODEL || 'gpt-4.1';
+  const model = params.model || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
   const client = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     baseURL: process.env.OPENAI_BASE_URL
@@ -371,6 +596,8 @@ async function extractWithModelBatch(params: {
       type: 'text',
       text: [
         'Estrarre lista fili e componenti da uno schema elettrico seguendo le regole R26 (R1-R8: numeri fili rossi, frecce rosse, barre "\\\\", duplicazione per ganci, doppio elenco fili/componenti).',
+        'Nota importante: i numeri dei fili sono spesso stampati in rosso e possono apparire "barrati" (una linea del filo rosso attraversa le cifre). Anche se barrati, vanno letti e usati come ID del filo.',
+        'Ogni pagina può includere una immagine intera + più immagini "Zoom tile" della stessa pagina: usa i tile per leggere numeri piccoli (specialmente i numeri rossi barrati) e l\'immagine intera per il contesto.',
         'Stai ricevendo un batch di pagine (max 10). Indica per ogni riga il numero di pagina nel campo "page" riferito alla pagina originale.',
         'Salta pagine di esempio/legenda (spesso marcate "ESEMPIO") e ignora collegamenti/componenti tratteggiati o indicati come esterni/opzionali; non estrarre fili da quei tratti.',
         'Se un elemento è descritto su più pagine, accumula quantità e mantieni i riferimenti coerenti; non duplicare oggetti già contati.',
@@ -424,11 +651,31 @@ async function extractWithModelBatch(params: {
 
     if (page.pageImage) {
       content.push({
+        type: 'text',
+        text: `Immagine pagina intera ${pageLabel} (contesto)`
+      });
+      content.push({
         type: 'image_url',
         image_url: {
           url: `data:image/png;base64,${page.pageImage}`,
           detail: 'high'
         }
+      });
+    }
+
+    if (page.pageZoomImages?.length) {
+      page.pageZoomImages.forEach((tile, tileIdx) => {
+        content.push({
+          type: 'text',
+          text: `Zoom ${tileIdx + 1}/${page.pageZoomImages!.length} - ${tile.label}`
+        });
+        content.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:image/png;base64,${tile.image}`,
+            detail: 'high'
+          }
+        });
       });
     }
   });
@@ -538,7 +785,7 @@ async function buildWorkbook(params: {
     { Campo: 'Pagine analizzate', Valore: params.metadata.pages_used ?? 'n/d' },
     { Campo: 'Caratteri testo', Valore: params.metadata.text_chars ?? 'n/d' },
     { Campo: 'Testo troncato', Valore: params.metadata.truncated_text ? 'sì' : 'no' },
-    { Campo: 'Modello', Valore: params.metadata.model || 'gpt-4o-mini' },
+    { Campo: 'Modello', Valore: params.metadata.model || DEFAULT_OPENAI_MODEL },
     { Campo: 'Estratto il', Valore: params.metadata.extracted_at }
   ];
   XLSX.utils.book_append_sheet(
@@ -642,7 +889,7 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
   let rawText = '';
   let pageTexts: string[] = [];
-  let images: string[] = [];
+  let imageSets: PageImageSet[] = [];
   const ext = path.extname(resolvedPath).toLowerCase();
 
   try {
@@ -657,15 +904,15 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
       }
 
       if (useVision) {
-        images = await convertPdfToImages(resolvedPath, startPage, endPage);
-        if (!images.length) {
+        imageSets = await convertPdfToImageSets(resolvedPath, startPage, endPage);
+        if (!imageSets.length) {
           warnings.push('Impossibile convertire il PDF in immagini: assicurati che poppler-utils/pdftoppm sia installato.');
         }
       } else if (!rawText || rawText.trim().length < 30) {
         warnings.push('PDF con poco testo e visione disattivata: l’estrazione potrebbe essere incompleta.');
       }
     } else if (['.png', '.jpg', '.jpeg', '.tiff', '.bmp'].includes(ext)) {
-      images = [await loadImageAsBase64(resolvedPath)];
+      imageSets = [{ full: await loadImageAsBase64(resolvedPath), zooms: [] }];
       warnings.push('File immagine: uso visione/LLM per estrazione.');
     } else {
       rawText = await fs.readFile(resolvedPath, 'utf-8');
@@ -674,7 +921,7 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     throw new Error(`Impossibile leggere il file: ${error.message}`);
   }
 
-const { text: textForModel } = truncateForModel(rawText);
+  const { text: textForModel } = truncateForModel(rawText);
   // No truncation applied; truncated is always false
 
   let wires: WireRecord[] = [];
@@ -683,12 +930,13 @@ const { text: textForModel } = truncateForModel(rawText);
   if (process.env.OPENAI_API_KEY) {
     try {
       const textualPages = pageTexts.length ? pageTexts : [textForModel];
-      const pageItems = images.length
-        ? images.map((img, i) => ({
-            pageImage: img,
+      const pageItems = imageSets.length
+        ? imageSets.map((set, i) => ({
+            pageImage: set.full,
+            pageZoomImages: set.zooms,
             pageText: textualPages[i] ?? textForModel,
             pageIndex: i,
-            totalPages: images.length,
+            totalPages: imageSets.length,
             pageNumber: startPage + i,
             model: input.model,
             project: input.project
@@ -754,7 +1002,7 @@ const { text: textForModel } = truncateForModel(rawText);
     }
   }
 
-  const pagesCount = images.length || pageTexts.length || (rawText ? Math.max(1, endPage - startPage + 1) : undefined);
+  const pagesCount = imageSets.length || pageTexts.length || (rawText ? Math.max(1, endPage - startPage + 1) : undefined);
 
   const metadata: ExtractionMetadata = {
     source_file: resolvedPath,
@@ -763,7 +1011,7 @@ const { text: textForModel } = truncateForModel(rawText);
     truncated_text: false,
     project: input.project,
     note: input.note,
-    model: input.model || process.env.OPENAI_MODEL || 'gpt-4.1',
+    model: input.model || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
     extracted_at: new Date().toISOString()
   };
 

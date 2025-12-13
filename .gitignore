@@ -8,6 +8,8 @@ coverage/
 
 DATA/
 
+outputs/
+
 # Production
 build/
 dist/
