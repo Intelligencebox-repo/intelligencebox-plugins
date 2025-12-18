@@ -44,6 +44,29 @@
       "default": 300
     }
   },
+  "volumeMountsConfig": {
+    "dataai": {
+      "envVars": ["DATA_AI_PATH", "MOUNT_PATH", "FILE_DIRECTORY"],
+      "description": "Directory principale per i file AI/documenti processati (schemi elettrici PDF)",
+      "required": true
+    },
+    "output": {
+      "envVars": ["OUTPUT_DIR", "OUTPUT_PATH"],
+      "description": "Directory per output Excel generati",
+      "required": false
+    }
+  },
+  "dockerDefaults": {
+    "needsFileAccess": true,
+    "volumeMounts": {
+      "dataai": "/dataai",
+      "output": "/output"
+    },
+    "resources": {
+      "memory": "1g",
+      "cpus": "0.5"
+    }
+  },
   "requirements": {
     "minMemory": "512Mi",
     "minCpu": 0.3,
