@@ -7,10 +7,12 @@ export const ExtractWirelistSchema = z.object({
   note: z.string().optional(),
   start_page: z.number().int().positive().default(1).optional(),
   end_page: z.number().int().positive().optional(),
-  max_pages: z.number().int().positive().max(1000).default(3).optional(),
+  // No default here - use DEFAULT_MAX_PAGES env var in extraction.ts
+  max_pages: z.number().int().positive().max(1000).optional(),
   use_vision: z.boolean().default(true).optional(),
   add_raw_text_sheet: z.boolean().default(true).optional(),
-  model: z.string().optional()
+  model: z.string().optional(),
+  invocation_id: z.string().optional()
 });
 
 export type ExtractWirelistInput = z.infer<typeof ExtractWirelistSchema>;

@@ -15,8 +15,51 @@ const DEFAULT_OPENAI_MODEL = 'gpt-5.2';
 const DEFAULT_PDF_RENDER_DPI = 300;
 const DEFAULT_PDF_TILE_GRID = 2; // 2x2 tiles by default to help read small red IDs
 
+// Default to box-server on Docker backend network; override with PROGRESS_WEBHOOK_URL for local dev
+const PROGRESS_WEBHOOK_URL = process.env.PROGRESS_WEBHOOK_URL || 'http://box-server:3001/api/mcp/progress';
+
 function log(message: string): void {
   process.stderr.write(`[wirelist] ${message}\n`);
+}
+
+export interface ProgressPayload {
+  invocationId: string;
+  toolName: string;
+  status: 'in_progress' | 'completed' | 'failed';
+  progress: number; // 0-100
+  message: string;
+}
+
+async function sendProgress(payload: ProgressPayload): Promise<void> {
+  try {
+    const response = await fetch(PROGRESS_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      log(`Progress webhook returned ${response.status}`);
+    }
+  } catch (err: any) {
+    // Non-blocking: log and continue
+    log(`Progress webhook error: ${err.message}`);
+  }
+}
+
+export interface ProgressContext {
+  invocationId?: string;
+  toolName?: string;
+}
+
+async function reportProgress(ctx: ProgressContext | undefined, progress: number, message: string, status: 'in_progress' | 'completed' | 'failed' = 'in_progress'): Promise<void> {
+  if (!ctx?.invocationId) return;
+  await sendProgress({
+    invocationId: ctx.invocationId,
+    toolName: ctx.toolName || 'extract_wirelist',
+    status,
+    progress: Math.round(Math.min(100, Math.max(0, progress))),
+    message
+  });
 }
 
 function previewArray<T extends Record<string, unknown>>(items: T[], keys: (keyof T)[], limit = 3): string {
@@ -874,9 +917,19 @@ async function buildWorkbook(params: {
 export async function extractWirelistToExcel(input: ExtractWirelistInput): Promise<ExtractionResult> {
   const warnings: string[] = [];
   const resolvedPath = path.resolve(input.file_path);
+  // Default output to mounted volume so files are accessible from host
+  const defaultOutputDir = process.env.OUTPUT_DIR || '/dataai/outputs';
   const outputPath = path.resolve(
-    input.output_excel_path || path.join(process.cwd(), 'outputs', `wirelist-${Date.now()}.xlsx`)
+    input.output_excel_path || path.join(defaultOutputDir, `wirelist-${Date.now()}.xlsx`)
   );
+
+  // Progress tracking context
+  const progressCtx: ProgressContext = {
+    invocationId: input.invocation_id,
+    toolName: 'extract_wirelist'
+  };
+
+  await reportProgress(progressCtx, 0, 'Avvio estrazione wirelist...');
 
   const startPage = Math.max(1, input.start_page ?? 1);
   const maxPages = input.max_pages ?? Number(process.env.DEFAULT_MAX_PAGES || 3);
@@ -892,8 +945,11 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
   let imageSets: PageImageSet[] = [];
   const ext = path.extname(resolvedPath).toLowerCase();
 
+  await reportProgress(progressCtx, 5, 'Lettura file sorgente...');
+
   try {
     if (ext === '.pdf') {
+      await reportProgress(progressCtx, 8, 'Estrazione testo da PDF...');
       const pdfText = await extractPdfText(resolvedPath);
       const startIdx = Math.max(0, startPage - 1);
       const endIdx = Math.min(pdfText.pageTexts.length, endPage);
@@ -904,20 +960,27 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
       }
 
       if (useVision) {
+        await reportProgress(progressCtx, 12, 'Conversione PDF in immagini...');
         imageSets = await convertPdfToImageSets(resolvedPath, startPage, endPage);
+        await reportProgress(progressCtx, 20, `Convertite ${imageSets.length} pagine in immagini`);
         if (!imageSets.length) {
           warnings.push('Impossibile convertire il PDF in immagini: assicurati che poppler-utils/pdftoppm sia installato.');
         }
       } else if (!rawText || rawText.trim().length < 30) {
-        warnings.push('PDF con poco testo e visione disattivata: l’estrazione potrebbe essere incompleta.');
+        warnings.push("PDF con poco testo e visione disattivata: l'estrazione potrebbe essere incompleta.");
       }
     } else if (['.png', '.jpg', '.jpeg', '.tiff', '.bmp'].includes(ext)) {
+      await reportProgress(progressCtx, 10, 'Caricamento immagine...');
       imageSets = [{ full: await loadImageAsBase64(resolvedPath), zooms: [] }];
       warnings.push('File immagine: uso visione/LLM per estrazione.');
+      await reportProgress(progressCtx, 20, 'Immagine caricata');
     } else {
+      await reportProgress(progressCtx, 10, 'Lettura file testo...');
       rawText = await fs.readFile(resolvedPath, 'utf-8');
+      await reportProgress(progressCtx, 20, 'File testo letto');
     }
   } catch (error: any) {
+    await reportProgress(progressCtx, 0, `Errore lettura file: ${error.message}`, 'failed');
     throw new Error(`Impossibile leggere il file: ${error.message}`);
   }
 
@@ -926,6 +989,8 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
   let wires: WireRecord[] = [];
   let components: ComponentRecord[] = [];
+
+  await reportProgress(progressCtx, 22, 'Preparazione estrazione con modello AI...');
 
   if (process.env.OPENAI_API_KEY) {
     try {
@@ -952,7 +1017,9 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
       const batches = chunkArray(pageItems, BATCH_PAGE_LIMIT);
       log(`Invio ${pageItems.length} pagine al modello in ${batches.length} batch (max ${BATCH_PAGE_LIMIT} per richiesta, concorrenza ${BATCH_CONCURRENCY})`);
+      await reportProgress(progressCtx, 25, `Invio ${pageItems.length} pagine in ${batches.length} batch...`);
 
+      let completedBatches = 0;
       const processBatch = async (batch: typeof pageItems, batchIndex: number, totalBatches: number) => {
         const preparedPages = batch.map(p => {
           const textToUse = p.pageText || textForModel;
@@ -978,6 +1045,11 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
         log(`[batch ${batchIndex + 1}/${totalBatches}] fili estratti=${batchResult.wires?.length || 0} preview=${previewArray(batchResult.wires || [], ['id', 'from', 'to'])}`);
         log(`[batch ${batchIndex + 1}/${totalBatches}] componenti estratti=${batchResult.components?.length || 0} preview=${previewArray(batchResult.components || [], ['ref', 'description', 'wires'])}`);
+
+        // Report batch progress (25% to 80% range for batch processing)
+        completedBatches++;
+        const batchProgress = 25 + Math.round((completedBatches / totalBatches) * 55);
+        await reportProgress(progressCtx, batchProgress, `Batch ${completedBatches}/${totalBatches} completato - ${wires.length} fili, ${components.length} componenti`);
       };
 
       await runBatchPool(batches, BATCH_CONCURRENCY, async (batch, idx) => {
@@ -991,16 +1063,20 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
   }
 
   // Normalizzazioni post-process per ridurre nomi inventati/suffissi
+  await reportProgress(progressCtx, 82, 'Normalizzazione dati estratti...');
   wires = normalizeWires(wires);
   components = normalizeComponents(components);
 
   if (!wires.length && rawText) {
+    await reportProgress(progressCtx, 85, 'Tentativo estrazione euristica...');
     const heuristic = heuristicWireParse(rawText);
     if (heuristic.length) {
       warnings.push('Usata estrazione euristica di base perché il modello non ha restituito fili.');
       wires = heuristic;
     }
   }
+
+  await reportProgress(progressCtx, 88, `Normalizzazione completata: ${wires.length} fili, ${components.length} componenti`);
 
   const pagesCount = imageSets.length || pageTexts.length || (rawText ? Math.max(1, endPage - startPage + 1) : undefined);
 
@@ -1015,6 +1091,8 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     extracted_at: new Date().toISOString()
   };
 
+  await reportProgress(progressCtx, 90, 'Generazione file Excel...');
+
   await buildWorkbook({
     wires,
     components,
@@ -1023,6 +1101,8 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     addRawTextSheet: input.add_raw_text_sheet ?? true,
     outputPath
   });
+
+  await reportProgress(progressCtx, 100, `Estrazione completata: ${wires.length} fili, ${components.length} componenti`, 'completed');
 
   return {
     output_excel_path: outputPath,

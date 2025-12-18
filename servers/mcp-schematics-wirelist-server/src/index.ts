@@ -33,13 +33,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  // Extract invocation ID from MCP request for progress tracking
+  const invocationId = (request.params as any)._meta?.progressToken ||
+                       (request as any).id ||
+                       `call_${Date.now()}`;
 
   if (name !== 'extract_wirelist') {
     throw new Error(`Unknown tool: ${name}`);
   }
 
   try {
-    const validated = ExtractWirelistSchema.parse(args || {});
+    const validated = ExtractWirelistSchema.parse({
+      ...args,
+      invocation_id: (args as any)?.invocation_id || invocationId
+    });
     const result = await extractWirelistToExcel(validated);
 
     return {
