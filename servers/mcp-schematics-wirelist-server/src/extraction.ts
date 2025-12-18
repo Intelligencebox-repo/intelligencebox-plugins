@@ -15,17 +15,18 @@ const DEFAULT_OPENAI_MODEL = 'gpt-5.2';
 const DEFAULT_PDF_RENDER_DPI = 300;
 const DEFAULT_PDF_TILE_GRID = 2; // 2x2 tiles by default to help read small red IDs
 
-// Auto-detect environment: Docker uses box-server hostname, local dev uses localhost
+// Auto-detect environment: Docker uses box-server hostname, local dev uses 127.0.0.1
 function getProgressWebhookUrl(): string {
   if (process.env.PROGRESS_WEBHOOK_URL) {
-    return process.env.PROGRESS_WEBHOOK_URL;
+    // Replace localhost with 127.0.0.1 to avoid IPv6 issues
+    return process.env.PROGRESS_WEBHOOK_URL.replace('localhost', '127.0.0.1');
   }
   // Detect Docker environment (DOCKER_ENV is set in docker-compose)
   const isDocker = process.env.DOCKER_ENV === 'true' ||
                    process.env.RUNNING_IN_DOCKER === 'true';
   return isDocker
     ? 'http://box-server:3001/api/mcp/progress'
-    : 'http://localhost:3001/api/mcp/progress';
+    : 'http://127.0.0.1:3001/api/mcp/progress';
 }
 
 const PROGRESS_WEBHOOK_URL = getProgressWebhookUrl();
@@ -56,8 +57,13 @@ async function sendProgress(payload: ProgressPayload): Promise<void> {
       log(`Progress webhook returned ${response.status}`);
     }
   } catch (err: any) {
-    // Non-blocking: log and continue
-    log(`Progress webhook error: ${err.message} (URL: ${PROGRESS_WEBHOOK_URL})`);
+    // Non-blocking: log full error details
+    log(`Progress webhook error: ${err.message}`);
+    log(`  URL: ${PROGRESS_WEBHOOK_URL}`);
+    log(`  Error name: ${err.name}`);
+    log(`  Error code: ${err.code || 'none'}`);
+    log(`  Error cause: ${err.cause ? JSON.stringify(err.cause, null, 2) : 'none'}`);
+    log(`  Stack: ${err.stack?.split('\n').slice(0, 3).join(' | ')}`);
   }
 }
 
