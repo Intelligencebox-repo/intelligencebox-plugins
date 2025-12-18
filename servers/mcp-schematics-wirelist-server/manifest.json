@@ -42,6 +42,11 @@
       "description": "Numero massimo di pagine PDF da analizzare (fallback).",
       "required": false,
       "default": 300
+    },
+    "PROGRESS_WEBHOOK_URL": {
+      "type": "string",
+      "description": "URL webhook per notifiche di progresso (default: http://box-server:3001/api/mcp/progress).",
+      "required": false
     }
   },
   "volumeMountsConfig": {

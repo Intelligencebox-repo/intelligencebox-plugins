@@ -384,6 +384,7 @@ export interface ExtractionMetadata {
 
 export interface ExtractionResult {
   output_excel_path: string;
+  output_relative_path: string;
   wires: number;
   components: number;
   warnings: string[];
@@ -1104,8 +1105,14 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
   await reportProgress(progressCtx, 100, `Estrazione completata: ${wires.length} fili, ${components.length} componenti`, 'completed');
 
+  // Return standardized paths - box-server will construct the HTTP URL
+  // output_excel_path: full container path (e.g., /dataai/outputs/wirelist-xxx.xlsx)
+  // output_relative_path: relative to dataai mount (e.g., outputs/wirelist-xxx.xlsx)
+  const relativeToDataai = outputPath.replace(/^\/dataai\//, '').replace(/^\/files\/dataai\//, '');
+
   return {
     output_excel_path: outputPath,
+    output_relative_path: relativeToDataai,
     wires: wires.length,
     components: components.length,
     warnings,
