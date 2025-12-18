@@ -16,18 +16,48 @@ const DEFAULT_OPENAI_MODEL = 'gpt-5.2';
 const DEFAULT_PDF_RENDER_DPI = 300;
 const DEFAULT_PDF_TILE_GRID = 2; // 2x2 tiles by default to help read small red IDs
 
-// Auto-detect environment: Docker uses box-server hostname, local dev uses 127.0.0.1
+// Auto-detect environment for webhook URL
+function isRunningInDocker(): boolean {
+  // Check common Docker indicators
+  try {
+    // /.dockerenv exists in Docker containers
+    require('fs').accessSync('/.dockerenv');
+    return true;
+  } catch {
+    // Check cgroup for docker/containerd
+    try {
+      const cgroup = require('fs').readFileSync('/proc/1/cgroup', 'utf8');
+      return cgroup.includes('docker') || cgroup.includes('containerd');
+    } catch {
+      return false;
+    }
+  }
+}
+
 function getProgressWebhookUrl(): string {
   if (process.env.PROGRESS_WEBHOOK_URL) {
-    // Replace localhost with 127.0.0.1 to avoid IPv6 issues
-    return process.env.PROGRESS_WEBHOOK_URL.replace('localhost', '127.0.0.1');
+    return process.env.PROGRESS_WEBHOOK_URL;
   }
-  // Detect Docker environment (DOCKER_ENV is set in docker-compose)
-  const isDocker = process.env.DOCKER_ENV === 'true' ||
-                   process.env.RUNNING_IN_DOCKER === 'true';
-  return isDocker
-    ? 'http://box-server:3001/api/mcp/progress'
-    : 'http://127.0.0.1:3001/api/mcp/progress';
+
+  const inDocker = isRunningInDocker();
+
+  // Check if box-server is on the same Docker network (full Docker deployment)
+  const boxServerOnNetwork = process.env.DOCKER_ENV === 'true' ||
+                              process.env.BOX_SERVER_HOST === 'box-server';
+
+  if (inDocker) {
+    if (boxServerOnNetwork) {
+      // Full Docker: both services on same network
+      return 'http://box-server:3001/api/mcp/progress';
+    } else {
+      // Dev mode: MCP in Docker, box-server on host
+      // Use host.docker.internal to reach host from container
+      return 'http://host.docker.internal:3001/api/mcp/progress';
+    }
+  }
+
+  // Not in Docker: local development
+  return 'http://127.0.0.1:3001/api/mcp/progress';
 }
 
 const PROGRESS_WEBHOOK_URL = getProgressWebhookUrl();
