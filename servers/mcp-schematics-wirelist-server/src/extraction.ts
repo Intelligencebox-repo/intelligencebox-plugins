@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import http from 'http';
 import { promisify } from 'util';
 import { execFile } from 'child_process';
 import { PDFParse } from 'pdf-parse';
@@ -47,24 +48,50 @@ export interface ProgressPayload {
 }
 
 async function sendProgress(payload: ProgressPayload): Promise<void> {
-  try {
-    const response = await fetch(PROGRESS_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) {
-      log(`Progress webhook returned ${response.status}`);
+  return new Promise((resolve) => {
+    try {
+      const url = new URL(PROGRESS_WEBHOOK_URL);
+      const data = JSON.stringify(payload);
+
+      const options: http.RequestOptions = {
+        hostname: url.hostname,
+        port: url.port || 3001,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data)
+        },
+        timeout: 5000
+      };
+
+      const req = http.request(options, (res) => {
+        if (res.statusCode !== 200) {
+          log(`Progress webhook returned ${res.statusCode}`);
+        }
+        // Consume response to free up resources
+        res.resume();
+        resolve();
+      });
+
+      req.on('error', (err: NodeJS.ErrnoException) => {
+        log(`Progress webhook error: code=${err.code || 'none'}, errno=${err.errno || 'none'}, syscall=${err.syscall || 'none'}, message=${err.message}`);
+        resolve(); // Non-blocking: continue even if webhook fails
+      });
+
+      req.on('timeout', () => {
+        log(`Progress webhook timeout after 5s`);
+        req.destroy();
+        resolve();
+      });
+
+      req.write(data);
+      req.end();
+    } catch (err: any) {
+      log(`Progress webhook setup error: ${err.message}`);
+      resolve();
     }
-  } catch (err: any) {
-    // Non-blocking: log full error details
-    log(`Progress webhook error: ${err.message}`);
-    log(`  URL: ${PROGRESS_WEBHOOK_URL}`);
-    log(`  Error name: ${err.name}`);
-    log(`  Error code: ${err.code || 'none'}`);
-    log(`  Error cause: ${err.cause ? JSON.stringify(err.cause, null, 2) : 'none'}`);
-    log(`  Stack: ${err.stack?.split('\n').slice(0, 3).join(' | ')}`);
-  }
+  });
 }
 
 export interface ProgressContext {
@@ -527,10 +554,15 @@ async function convertPdfToImageSets(filePath: string, startPage: number, endPag
   const prefix = path.join(tempDir, 'page');
   const first = Math.max(1, startPage);
   const last = Math.max(first, endPage);
+  const totalPages = last - first + 1;
   const dpi = getPdfRenderDpi();
   const tileGrid = getPdfTileGrid();
-  log(`Converto PDF in PNG (pagine ${first}-${last}, ${dpi} DPI, tileGrid=${tileGrid})`);
+  log(`Converto PDF in PNG (pagine ${first}-${last}, totale ${totalPages} pagine, ${dpi} DPI, tileGrid=${tileGrid})`);
+  log(`Inizio conversione PDF... questo può richiedere diversi minuti per ${totalPages} pagine`);
+  const conversionStart = Date.now();
   await execFileAsync('pdftoppm', ['-png', '-r', String(dpi), '-aa', 'yes', '-aaVector', 'yes', '-f', String(first), '-l', String(last), filePath, prefix]);
+  const conversionTime = ((Date.now() - conversionStart) / 1000).toFixed(1);
+  log(`Conversione PDF completata in ${conversionTime}s`);
 
   const files = (await fs.readdir(tempDir))
     .filter(name => name.endsWith('.png'))
@@ -560,6 +592,11 @@ async function convertPdfToImageSets(filePath: string, startPage: number, endPag
   }
 
   // Generate zoom tiles per page to help the model read small red wire IDs (often "barrati").
+  const totalTiles = pageSets.length * tileGrid * tileGrid;
+  log(`Generazione ${totalTiles} tile zoom (${tileGrid}x${tileGrid} per pagina)...`);
+  const tileStart = Date.now();
+  let tilesGenerated = 0;
+
   for (let i = 0; i < pageSets.length; i++) {
     const pageNum = pageNumbers[i];
     const dims = pageDims[i];
@@ -597,8 +634,17 @@ async function convertPdfToImageSets(filePath: string, startPage: number, endPag
       const tilePath = `${tilePrefix}.png`;
       const tileData = await fs.readFile(tilePath);
       pageSets[i].zooms.push({ image: tileData.toString('base64'), label: rect.label });
+      tilesGenerated++;
+
+      // Log progress every 20 tiles or at completion
+      if (tilesGenerated % 20 === 0 || tilesGenerated === totalTiles) {
+        log(`Tile zoom: ${tilesGenerated}/${totalTiles} generati`);
+      }
     }
   }
+
+  const tileTime = ((Date.now() - tileStart) / 1000).toFixed(1);
+  log(`Generazione tile completata in ${tileTime}s`);
 
   return pageSets;
 }
