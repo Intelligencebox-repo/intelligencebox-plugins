@@ -15,8 +15,20 @@ const DEFAULT_OPENAI_MODEL = 'gpt-5.2';
 const DEFAULT_PDF_RENDER_DPI = 300;
 const DEFAULT_PDF_TILE_GRID = 2; // 2x2 tiles by default to help read small red IDs
 
-// Default to box-server on Docker backend network; override with PROGRESS_WEBHOOK_URL for local dev
-const PROGRESS_WEBHOOK_URL = process.env.PROGRESS_WEBHOOK_URL || 'http://box-server:3001/api/mcp/progress';
+// Auto-detect environment: Docker uses box-server hostname, local dev uses localhost
+function getProgressWebhookUrl(): string {
+  if (process.env.PROGRESS_WEBHOOK_URL) {
+    return process.env.PROGRESS_WEBHOOK_URL;
+  }
+  // Detect Docker environment (DOCKER_ENV is set in docker-compose)
+  const isDocker = process.env.DOCKER_ENV === 'true' ||
+                   process.env.RUNNING_IN_DOCKER === 'true';
+  return isDocker
+    ? 'http://box-server:3001/api/mcp/progress'
+    : 'http://localhost:3001/api/mcp/progress';
+}
+
+const PROGRESS_WEBHOOK_URL = getProgressWebhookUrl();
 
 function log(message: string): void {
   process.stderr.write(`[wirelist] ${message}\n`);
@@ -384,7 +396,7 @@ export interface ExtractionMetadata {
 
 export interface ExtractionResult {
   output_excel_path: string;
-  output_relative_path: string;
+  output_url: string;
   wires: number;
   components: number;
   warnings: string[];
@@ -933,7 +945,7 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
   await reportProgress(progressCtx, 0, 'Avvio estrazione wirelist...');
 
   const startPage = Math.max(1, input.start_page ?? 1);
-  const maxPages = input.max_pages ?? Number(process.env.DEFAULT_MAX_PAGES || 3);
+  const maxPages = input.max_pages ?? Number(process.env.DEFAULT_MAX_PAGES || 300);
   const boundedMaxPages = Math.min(maxPages, 1000);
   const requestedEnd = input.end_page ? Math.max(input.end_page, startPage) : undefined;
   const endPage = requestedEnd
@@ -1105,14 +1117,17 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
   await reportProgress(progressCtx, 100, `Estrazione completata: ${wires.length} fili, ${components.length} componenti`, 'completed');
 
-  // Return standardized paths - box-server will construct the HTTP URL
+  // Return standardized paths for frontend URL resolution
   // output_excel_path: full container path (e.g., /dataai/outputs/wirelist-xxx.xlsx)
-  // output_relative_path: relative to dataai mount (e.g., outputs/wirelist-xxx.xlsx)
-  const relativeToDataai = outputPath.replace(/^\/dataai\//, '').replace(/^\/files\/dataai\//, '');
+  // output_url: web-accessible relative path starting with /files/ (frontend will resolve to absolute URL)
+  // The frontend's urlResolver.ts handles /files/... paths and converts them to absolute URLs
+  const webPath = outputPath
+    .replace(/^\/dataai\//, '/files/')
+    .replace(/^\/files\/dataai\//, '/files/');
 
   return {
     output_excel_path: outputPath,
-    output_relative_path: relativeToDataai,
+    output_url: webPath,
     wires: wires.length,
     components: components.length,
     warnings,
