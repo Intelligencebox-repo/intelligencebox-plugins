@@ -34,6 +34,9 @@ function log(message: string): void {
   process.stderr.write(`[wirelist] ${message}\n`);
 }
 
+// Log the webhook URL at startup for debugging
+log(`Progress webhook URL: ${PROGRESS_WEBHOOK_URL}`);
+
 export interface ProgressPayload {
   invocationId: string;
   toolName: string;
@@ -54,7 +57,7 @@ async function sendProgress(payload: ProgressPayload): Promise<void> {
     }
   } catch (err: any) {
     // Non-blocking: log and continue
-    log(`Progress webhook error: ${err.message}`);
+    log(`Progress webhook error: ${err.message} (URL: ${PROGRESS_WEBHOOK_URL})`);
   }
 }
 
