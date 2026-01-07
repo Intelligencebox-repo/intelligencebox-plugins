@@ -5,16 +5,24 @@ import http from 'http';
 import { promisify } from 'util';
 import { execFile } from 'child_process';
 import { PDFParse } from 'pdf-parse';
-import OpenAI from 'openai';
 import XLSX from 'xlsx';
 import { ExtractWirelistInput } from './schema.js';
 
 const execFileAsync = promisify(execFile);
-const BATCH_PAGE_LIMIT = 1; // invia una pagina per richiesta
-const BATCH_CONCURRENCY = 30; // concorrenza elevata (30 richieste massimo)
-const DEFAULT_OPENAI_MODEL = 'gpt-5.2';
+// Concorrenza per le richieste parallele
+const VISION_CONCURRENCY = parseInt(process.env.VISION_CONCURRENCY || '10', 10);
+const VISION_MAX_RETRIES = parseInt(process.env.VISION_MAX_RETRIES || '3', 10);
 const DEFAULT_PDF_RENDER_DPI = 300;
 const DEFAULT_PDF_TILE_GRID = 2; // 2x2 tiles by default to help read small red IDs
+
+// OpenRouter configuration
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-3-flash-preview';
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+
+function getVisionModel(): string {
+  return OPENROUTER_MODEL;
+}
 
 // Auto-detect environment for webhook URL
 function isRunningInDocker(): boolean {
@@ -140,23 +148,8 @@ async function reportProgress(ctx: ProgressContext | undefined, progress: number
   });
 }
 
-function previewArray<T extends Record<string, unknown>>(items: T[], keys: (keyof T)[], limit = 3): string {
-  const slice = items.slice(0, limit);
-  return slice.map(it => {
-    const parts = keys.map(k => `${String(k)}=${it[k] ?? ''}`);
-    return `{${parts.join(', ')}}`;
-  }).join('; ');
-}
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
-  }
-  return chunks;
-}
-
-const PHASE_ONLY_IDS = new Set(['L1', 'L2', 'L3', 'N', 'PE', 'PEN']);
+// Only exclude generic phase/ground indicators, NOT L1/L2/L3 which are often real wire IDs
+const PHASE_ONLY_IDS = new Set(['N', 'PE', 'PEN']);
 
 function isNumericCoordinate(value: unknown): boolean {
   if (typeof value !== 'string') return false;
@@ -214,6 +207,746 @@ function shouldDropWireId(id?: string): boolean {
   if (/^W/i.test(trimmed)) return true; // Escludi cavi Wxxx
   if (PHASE_ONLY_IDS.has(trimmed.toUpperCase())) return true; // Evita ID solo di fase
   return false;
+}
+
+// ============================================================
+// Wire Graph Resolution - Tracciamento fili attraverso pagine
+// ============================================================
+
+type EndpointType = 'component' | 'reference' | 'terminal';
+
+interface WireNode {
+  name: string;
+  type: EndpointType;
+  page?: number;
+  foglio?: number;  // Sheet number from cartiglio
+}
+
+interface WireEdge {
+  from: string;
+  to: string;
+  page?: number;
+}
+
+interface WireGraphData {
+  nodes: WireNode[];
+  edges: WireEdge[];
+}
+
+/**
+ * Classifica un endpoint come componente, rimando (reference), o morsettiera (terminal)
+ */
+function classifyEndpoint(endpoint: string): EndpointType {
+  const trimmed = endpoint.trim().toLowerCase();
+  // Rimandi: "rimando 108.8", "rimando 174.8"
+  if (trimmed.startsWith('rimando')) return 'reference';
+  // Morsettiere: X1.xx, XT1.xx, X2:xx, XT3:xx
+  if (/^-?x\d+[.:]/i.test(trimmed) || /^-?xt\d+[.:]/i.test(trimmed)) return 'terminal';
+  return 'component';
+}
+
+/**
+ * Normalizza rimando a solo numero pagina (ignora posizione)
+ * "rimando 105.1" → "rimando 105"
+ * "rimando 104.8" → "rimando 104"
+ * Questo permette di collegare rimandi tra pagine anche se le posizioni differiscono
+ */
+function normalizeRimando(endpoint: string): string {
+  const match = endpoint.match(/^rimando\s+(\d+)\.?\d*$/i);
+  if (match) {
+    return `rimando ${match[1]}`;
+  }
+  return endpoint;
+}
+
+/**
+ * Costruisce un grafo per ogni ID filo
+ */
+function buildWireGraph(wires: WireRecord[]): Map<string, WireGraphData> {
+  const graphs = new Map<string, WireGraphData>();
+
+  for (const wire of wires) {
+    const id = wire.id?.trim();
+    if (!id) continue;
+
+    if (!graphs.has(id)) {
+      graphs.set(id, { nodes: [], edges: [] });
+    }
+
+    const g = graphs.get(id)!;
+
+    // Add nodes - normalize rimando to page-only for better cross-page matching
+    if (wire.from) {
+      const fromNormalized = normalizeRimando(wire.from.trim());
+      g.nodes.push({ name: fromNormalized, type: classifyEndpoint(fromNormalized), page: wire.page, foglio: wire.foglio });
+    }
+    if (wire.to) {
+      const toNormalized = normalizeRimando(wire.to.trim());
+      g.nodes.push({ name: toNormalized, type: classifyEndpoint(toNormalized), page: wire.page, foglio: wire.foglio });
+    }
+
+    // Add edge - also normalize rimando endpoints
+    if (wire.from && wire.to) {
+      g.edges.push({
+        from: normalizeRimando(wire.from.trim()),
+        to: normalizeRimando(wire.to.trim()),
+        page: wire.page
+      });
+    }
+  }
+
+  // Post-process: connect complementary rimandi across fogli
+  // If foglio X has "rimando Y" and foglio Y has "rimando X" for same wire, add edge
+  for (const [, graph] of graphs) {
+    // Collect rimando nodes with their target foglio (from rimando name) and source foglio
+    const rimandoByTargetFoglio = new Map<number, { nodeName: string; sourceFoglio?: number }[]>();
+
+    for (const node of graph.nodes) {
+      if (node.type === 'reference') {
+        const match = node.name.match(/^rimando\s+(\d+)$/i);
+        if (match) {
+          const targetFoglio = parseInt(match[1], 10);
+          if (!rimandoByTargetFoglio.has(targetFoglio)) {
+            rimandoByTargetFoglio.set(targetFoglio, []);
+          }
+          rimandoByTargetFoglio.get(targetFoglio)!.push({
+            nodeName: node.name,
+            sourceFoglio: node.foglio  // Use foglio, not page
+          });
+        }
+      }
+    }
+
+    // Connect rimandi: if foglio X has "rimando Y" and foglio Y has "rimando X"
+    for (const [targetFoglio, rimandos] of rimandoByTargetFoglio) {
+      for (const rimando of rimandos) {
+        const sourceFoglio = rimando.sourceFoglio;
+        if (sourceFoglio === undefined) continue;
+
+        // Look for rimandi on the target foglio that point back to source foglio
+        const reverseRimandos = rimandoByTargetFoglio.get(sourceFoglio);
+        if (reverseRimandos) {
+          for (const reverseRimando of reverseRimandos) {
+            // Connect if they're on complementary fogli
+            if (reverseRimando.sourceFoglio === targetFoglio) {
+              graph.edges.push({
+                from: rimando.nodeName,
+                to: reverseRimando.nodeName
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return graphs;
+}
+
+/**
+ * BFS per trovare tutti i nodi reali raggiungibili da un nodo di partenza
+ */
+function bfsReachableRealNodes(
+  adj: Map<string, Set<string>>,
+  start: string,
+  realNodes: Set<string>
+): Set<string> {
+  const visited = new Set<string>();
+  const queue: string[] = [start];
+  const reachable = new Set<string>();
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    // Se è un nodo reale (non un rimando) e non è il punto di partenza, aggiungilo ai raggiungibili
+    if (realNodes.has(current) && current !== start) {
+      reachable.add(current);
+    }
+
+    // Esplora i vicini
+    const neighbors = adj.get(current);
+    if (neighbors) {
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          queue.push(neighbor);
+        }
+      }
+    }
+  }
+
+  return reachable;
+}
+
+/**
+ * Risolve le connessioni tra nodi reali (componenti/morsettiere) attraverso i rimandi
+ */
+function resolveWireConnections(graphs: Map<string, WireGraphData>): WireRecord[] {
+  const resolved: WireRecord[] = [];
+
+  for (const [wireId, graph] of graphs) {
+    // Get unique real endpoints (not references)
+    const realNodesSet = new Set<string>();
+    const nodePageMap = new Map<string, number>();
+
+    for (const node of graph.nodes) {
+      if (node.type !== 'reference') {
+        realNodesSet.add(node.name);
+        // Track first page where node appears
+        if (node.page !== undefined && !nodePageMap.has(node.name)) {
+          nodePageMap.set(node.name, node.page);
+        }
+      }
+    }
+
+    if (realNodesSet.size < 2) continue;
+
+    // Build adjacency list (undirected graph)
+    const adj = new Map<string, Set<string>>();
+    for (const edge of graph.edges) {
+      if (!adj.has(edge.from)) adj.set(edge.from, new Set());
+      if (!adj.has(edge.to)) adj.set(edge.to, new Set());
+      adj.get(edge.from)!.add(edge.to);
+      adj.get(edge.to)!.add(edge.from);
+    }
+
+    // Find all pairs of connected real nodes using BFS
+    const visitedPairs = new Set<string>();
+    for (const start of realNodesSet) {
+      const reachable = bfsReachableRealNodes(adj, start, realNodesSet);
+      for (const end of reachable) {
+        // Create canonical key to avoid duplicates (A→B = B→A)
+        const key = [start, end].sort().join('|');
+        if (!visitedPairs.has(key)) {
+          visitedPairs.add(key);
+          resolved.push({
+            id: wireId,
+            from: start,
+            to: end,
+            page: nodePageMap.get(start) ?? nodePageMap.get(end)
+          });
+        }
+      }
+    }
+  }
+
+  return resolved;
+}
+
+// ============================================================
+// Visual Graph Generation - Grafo visuale dello schema elettrico
+// ============================================================
+
+type ComponentType = 'breaker' | 'relay' | 'power' | 'terminal' | 'fuse' | 'switch' | 'lamp' | 'plc' | 'motor' | 'other';
+
+interface SchemaGraphNode {
+  id: string;
+  type: ComponentType;
+  label: string;
+  page?: number;
+}
+
+interface SchemaGraphEdge {
+  source: string;
+  target: string;
+  wireId: string;
+  label: string;
+}
+
+interface SchemaGraph {
+  nodes: SchemaGraphNode[];
+  edges: SchemaGraphEdge[];
+}
+
+/**
+ * Classifica un componente in base al prefisso della sua sigla
+ */
+function classifyComponentType(ref: string): ComponentType {
+  // Remove leading dash and get prefix (letters before numbers)
+  const cleaned = ref.replace(/^-/, '').toUpperCase();
+  const prefix = cleaned.replace(/\d+.*/, '');
+
+  switch (prefix) {
+    case 'QF':
+    case 'QM':
+    case 'QS':
+      return 'breaker'; // Magnetotermici, sezionatori
+    case 'KM':
+    case 'KA':
+    case 'K':
+      return 'relay'; // Relè, contattori
+    case 'TS':
+    case 'PS':
+    case 'G':
+      return 'power'; // Alimentatori, generatori
+    case 'XT':
+    case 'X':
+      return 'terminal'; // Morsettiere
+    case 'FS':
+    case 'FU':
+      return 'fuse'; // Fusibili
+    case 'SB':
+    case 'SA':
+    case 'S':
+      return 'switch'; // Pulsanti, selettori
+    case 'HL':
+    case 'H':
+      return 'lamp'; // Lampade spia
+    case 'AP':
+    case 'PLC':
+    case 'CPU':
+      return 'plc'; // PLC, moduli
+    case 'M':
+    case 'MOT':
+      return 'motor'; // Motori
+    default:
+      return 'other';
+  }
+}
+
+const COMPONENT_COLORS: Record<ComponentType, string> = {
+  breaker: '#90EE90',  // Light green
+  relay: '#87CEEB',    // Sky blue
+  power: '#FFB6C1',    // Light pink
+  terminal: '#D3D3D3', // Light gray
+  fuse: '#FFA500',     // Orange
+  switch: '#FFFF00',   // Yellow
+  lamp: '#DDA0DD',     // Plum
+  plc: '#00CED1',      // Dark cyan
+  motor: '#98FB98',    // Pale green
+  other: '#FFFFFF'     // White
+};
+
+/**
+ * Estrae il riferimento base del componente (senza pin/terminale)
+ */
+function extractComponentBase(endpoint: string): string {
+  // Handle formats like "QM102.13", "QM102:13", "-QM102.13", "XT3.24.1"
+  const cleaned = endpoint.replace(/^-/, '').trim();
+  // Match component reference (letters + numbers) before separator
+  const match = cleaned.match(/^([A-Za-z]+\d+)/);
+  return match ? match[1] : cleaned;
+}
+
+/**
+ * Costruisce il grafo visuale dello schema elettrico dai fili estratti
+ */
+function buildSchemaGraph(wires: WireRecord[], components: ComponentRecord[]): SchemaGraph {
+  const nodesMap = new Map<string, SchemaGraphNode>();
+  const edges: SchemaGraphEdge[] = [];
+
+  // Add nodes from wires
+  for (const wire of wires) {
+    if (!wire.from || !wire.to) continue;
+
+    // Extract component base references
+    const fromBase = extractComponentBase(wire.from);
+    const toBase = extractComponentBase(wire.to);
+
+    // Add nodes if not already present
+    if (!nodesMap.has(fromBase)) {
+      nodesMap.set(fromBase, {
+        id: fromBase,
+        type: classifyComponentType(fromBase),
+        label: fromBase,
+        page: wire.page
+      });
+    }
+
+    if (!nodesMap.has(toBase)) {
+      nodesMap.set(toBase, {
+        id: toBase,
+        type: classifyComponentType(toBase),
+        label: toBase,
+        page: wire.page
+      });
+    }
+
+    // Add edge
+    edges.push({
+      source: fromBase,
+      target: toBase,
+      wireId: wire.id || '',
+      label: wire.id ? `Filo ${wire.id}` : ''
+    });
+  }
+
+  // Enrich node labels with component descriptions if available
+  for (const comp of components) {
+    if (!comp.ref) continue;
+    const baseRef = extractComponentBase(comp.ref);
+    const node = nodesMap.get(baseRef);
+    if (node && comp.description) {
+      node.label = `${baseRef}\\n${comp.description.slice(0, 30)}`;
+    }
+  }
+
+  return {
+    nodes: Array.from(nodesMap.values()),
+    edges
+  };
+}
+
+/**
+ * Genera il file DOT (Graphviz) dal grafo
+ */
+function generateDotGraph(graph: SchemaGraph): string {
+  const lines: string[] = [
+    'digraph ElectricalSchema {',
+    '  rankdir=LR;',
+    '  node [shape=box, style=filled, fontname="Arial"];',
+    '  edge [fontname="Arial", fontsize=10];',
+    ''
+  ];
+
+  // Add nodes
+  for (const node of graph.nodes) {
+    const color = COMPONENT_COLORS[node.type] || COMPONENT_COLORS.other;
+    const label = node.label.replace(/"/g, '\\"');
+    lines.push(`  "${node.id}" [label="${label}", fillcolor="${color}"];`);
+  }
+
+  lines.push('');
+
+  // Add edges (deduplicate same source-target pairs)
+  const edgeKeys = new Set<string>();
+  for (const edge of graph.edges) {
+    const key = `${edge.source}|${edge.target}|${edge.wireId}`;
+    if (edgeKeys.has(key)) continue;
+    edgeKeys.add(key);
+
+    const label = edge.wireId || '';
+    lines.push(`  "${edge.source}" -> "${edge.target}" [label="${label}"];`);
+  }
+
+  lines.push('}');
+  return lines.join('\n');
+}
+
+/**
+ * Genera il file JSON del grafo per visualizzazione web
+ */
+function generateJsonGraph(graph: SchemaGraph): string {
+  return JSON.stringify({
+    nodes: graph.nodes.map(n => ({
+      id: n.id,
+      type: n.type,
+      label: n.label.replace(/\\n/g, '\n'),
+      color: COMPONENT_COLORS[n.type] || COMPONENT_COLORS.other
+    })),
+    edges: graph.edges.map(e => ({
+      source: e.source,
+      target: e.target,
+      wireId: e.wireId,
+      label: e.label
+    }))
+  }, null, 2);
+}
+
+/**
+ * Genera un file HTML standalone con visualizzazione D3.js interattiva
+ */
+function generateHtmlGraph(graph: SchemaGraph): string {
+  const jsonData = JSON.stringify({
+    nodes: graph.nodes.map(n => ({
+      id: n.id,
+      type: n.type,
+      label: n.label.replace(/\\n/g, '\n'),
+      color: COMPONENT_COLORS[n.type] || COMPONENT_COLORS.other
+    })),
+    links: graph.edges.map(e => ({
+      source: e.source,
+      target: e.target,
+      wireId: e.wireId,
+      label: e.label
+    }))
+  });
+
+  return `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schema Elettrico - Grafo Interattivo</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; }
+    #container { display: flex; height: 100vh; }
+    #sidebar {
+      width: 280px;
+      background: #16213e;
+      padding: 20px;
+      overflow-y: auto;
+      border-right: 1px solid #0f3460;
+    }
+    #graph { flex: 1; }
+    h1 { font-size: 18px; margin-bottom: 20px; color: #e94560; }
+    h2 { font-size: 14px; margin: 15px 0 10px; color: #0f4c75; }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      margin: 5px 0;
+      cursor: pointer;
+      padding: 5px;
+      border-radius: 4px;
+    }
+    .legend-item:hover { background: rgba(255,255,255,0.1); }
+    .legend-color {
+      width: 20px;
+      height: 20px;
+      border-radius: 3px;
+      margin-right: 10px;
+      border: 1px solid #333;
+    }
+    .legend-label { font-size: 12px; }
+    #search {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 15px;
+      border: 1px solid #0f3460;
+      border-radius: 4px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    #info {
+      margin-top: 20px;
+      padding: 10px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .node { cursor: pointer; }
+    .node text { font-size: 11px; fill: #333; pointer-events: none; }
+    .link { stroke: #999; stroke-opacity: 0.6; }
+    .link-label { font-size: 9px; fill: #666; }
+    .highlighted { stroke: #e94560; stroke-width: 3; }
+    .dimmed { opacity: 0.2; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="sidebar">
+      <h1>Schema Elettrico</h1>
+      <input type="text" id="search" placeholder="Cerca componente o filo...">
+      <h2>Legenda Componenti</h2>
+      <div id="legend"></div>
+      <div id="info">
+        <strong>Istruzioni:</strong><br>
+        • Trascina i nodi per riposizionarli<br>
+        • Scroll per zoom<br>
+        • Click su un nodo per evidenziare le connessioni<br>
+        • Usa la ricerca per trovare componenti/fili
+      </div>
+    </div>
+    <div id="graph"></div>
+  </div>
+  <script>
+    const data = ${jsonData};
+
+    const legendItems = {
+      breaker: { label: 'Magnetotermici (QF/QM)', color: '#90EE90' },
+      relay: { label: 'Relè/Contattori (K)', color: '#87CEEB' },
+      power: { label: 'Alimentatori (TS/PS)', color: '#FFB6C1' },
+      terminal: { label: 'Morsettiere (X/XT)', color: '#D3D3D3' },
+      fuse: { label: 'Fusibili (FS/FU)', color: '#FFA500' },
+      switch: { label: 'Pulsanti (S)', color: '#FFFF00' },
+      lamp: { label: 'Lampade (H)', color: '#DDA0DD' },
+      plc: { label: 'PLC/Moduli (AP)', color: '#00CED1' },
+      motor: { label: 'Motori (M)', color: '#98FB98' },
+      other: { label: 'Altri', color: '#FFFFFF' }
+    };
+
+    // Build legend
+    const legendEl = document.getElementById('legend');
+    const activeTypes = new Set(Object.keys(legendItems));
+
+    Object.entries(legendItems).forEach(([type, info]) => {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = \`<div class="legend-color" style="background:\${info.color}"></div><span class="legend-label">\${info.label}</span>\`;
+      item.onclick = () => {
+        if (activeTypes.has(type)) {
+          activeTypes.delete(type);
+          item.style.opacity = 0.4;
+        } else {
+          activeTypes.add(type);
+          item.style.opacity = 1;
+        }
+        updateVisibility();
+      };
+      legendEl.appendChild(item);
+    });
+
+    // Setup SVG
+    const container = document.getElementById('graph');
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    const svg = d3.select('#graph')
+      .append('svg')
+      .attr('width', '100%')
+      .attr('height', '100%')
+      .attr('viewBox', [0, 0, width, height]);
+
+    const g = svg.append('g');
+
+    // Zoom behavior
+    const zoom = d3.zoom()
+      .scaleExtent([0.1, 4])
+      .on('zoom', (event) => g.attr('transform', event.transform));
+    svg.call(zoom);
+
+    // Arrow marker
+    svg.append('defs').append('marker')
+      .attr('id', 'arrow')
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 20)
+      .attr('refY', 0)
+      .attr('markerWidth', 6)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('fill', '#999')
+      .attr('d', 'M0,-5L10,0L0,5');
+
+    // Force simulation
+    const simulation = d3.forceSimulation(data.nodes)
+      .force('link', d3.forceLink(data.links).id(d => d.id).distance(120))
+      .force('charge', d3.forceManyBody().strength(-400))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(50));
+
+    // Links
+    const link = g.append('g')
+      .selectAll('line')
+      .data(data.links)
+      .join('line')
+      .attr('class', 'link')
+      .attr('stroke-width', 2)
+      .attr('marker-end', 'url(#arrow)');
+
+    // Link labels
+    const linkLabel = g.append('g')
+      .selectAll('text')
+      .data(data.links)
+      .join('text')
+      .attr('class', 'link-label')
+      .text(d => d.wireId);
+
+    // Nodes
+    const node = g.append('g')
+      .selectAll('g')
+      .data(data.nodes)
+      .join('g')
+      .attr('class', 'node')
+      .call(d3.drag()
+        .on('start', dragstarted)
+        .on('drag', dragged)
+        .on('end', dragended));
+
+    node.append('rect')
+      .attr('width', 60)
+      .attr('height', 30)
+      .attr('x', -30)
+      .attr('y', -15)
+      .attr('rx', 4)
+      .attr('fill', d => d.color)
+      .attr('stroke', '#333')
+      .attr('stroke-width', 1);
+
+    node.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', 4)
+      .text(d => d.id);
+
+    // Tooltip
+    node.append('title').text(d => d.label);
+
+    // Click to highlight
+    node.on('click', (event, d) => {
+      const connected = new Set();
+      connected.add(d.id);
+      data.links.forEach(l => {
+        if (l.source.id === d.id) connected.add(l.target.id);
+        if (l.target.id === d.id) connected.add(l.source.id);
+      });
+
+      node.classed('dimmed', n => !connected.has(n.id));
+      link.classed('dimmed', l => l.source.id !== d.id && l.target.id !== d.id);
+      link.classed('highlighted', l => l.source.id === d.id || l.target.id === d.id);
+    });
+
+    svg.on('click', (event) => {
+      if (event.target.tagName === 'svg') {
+        node.classed('dimmed', false);
+        link.classed('dimmed', false);
+        link.classed('highlighted', false);
+      }
+    });
+
+    // Search
+    document.getElementById('search').addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase();
+      if (!query) {
+        node.classed('dimmed', false);
+        link.classed('dimmed', false);
+        return;
+      }
+      const matching = new Set();
+      data.nodes.forEach(n => {
+        if (n.id.toLowerCase().includes(query) || n.label.toLowerCase().includes(query)) {
+          matching.add(n.id);
+        }
+      });
+      data.links.forEach(l => {
+        if (l.wireId && l.wireId.toLowerCase().includes(query)) {
+          matching.add(l.source.id || l.source);
+          matching.add(l.target.id || l.target);
+        }
+      });
+      node.classed('dimmed', n => !matching.has(n.id));
+      link.classed('dimmed', l => !matching.has(l.source.id) && !matching.has(l.target.id));
+    });
+
+    function updateVisibility() {
+      node.classed('dimmed', n => !activeTypes.has(n.type));
+    }
+
+    simulation.on('tick', () => {
+      link
+        .attr('x1', d => d.source.x)
+        .attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x)
+        .attr('y2', d => d.target.y);
+
+      linkLabel
+        .attr('x', d => (d.source.x + d.target.x) / 2)
+        .attr('y', d => (d.source.y + d.target.y) / 2);
+
+      node.attr('transform', d => \`translate(\${d.x},\${d.y})\`);
+    });
+
+    function dragstarted(event) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      event.subject.fx = event.subject.x;
+      event.subject.fy = event.subject.y;
+    }
+
+    function dragged(event) {
+      event.subject.fx = event.x;
+      event.subject.fy = event.y;
+    }
+
+    function dragended(event) {
+      if (!event.active) simulation.alphaTarget(0);
+      event.subject.fx = null;
+      event.subject.fy = null;
+    }
+  </script>
+</body>
+</html>`;
 }
 
 function normalizeWires(wires: WireRecord[]): WireRecord[] {
@@ -299,14 +1032,16 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
     .filter(w => !(isNumericCoordinate(w.from) && isNumericCoordinate(w.to)));
 
   // Dedup: tiles/zoom can cause repeats; keep the best-populated row
+  // IMPORTANTE: NON ordinare from/to e NON includere page nella chiave
+  // Questo permette di mantenere connessioni distinte per fili comuni (es. filo "24" a più componenti)
+  // e di fare merge cross-page dello stesso segmento di filo
   const deduped = new Map<string, WireRecord>();
   for (const wire of filtered) {
     const id = typeof wire.id === 'string' ? wire.id.trim() : '';
     const from = typeof wire.from === 'string' ? wire.from.trim() : '';
     const to = typeof wire.to === 'string' ? wire.to.trim() : '';
-    const page = wire.page ?? '';
-    const endpoints = [from, to].sort((a, b) => a.localeCompare(b)).join('→');
-    const key = `${id}|${endpoints}|${page}`;
+    // Chiave: id|from|to - mantiene direzione e permette fili comuni a destinazioni diverse
+    const key = `${id}|${from}|${to}`;
 
     const existing = deduped.get(key);
     if (!existing) {
@@ -320,7 +1055,52 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
     deduped.set(key, candidate);
   }
 
-  return Array.from(deduped.values());
+  const sanitizedWires = Array.from(deduped.values());
+
+  // ============================================================
+  // Wire Graph Resolution - Traccia fili attraverso i rimandi
+  // ============================================================
+
+  // Separa fili completi (senza rimandi) da quelli con rimandi
+  const hasRimando = (w: WireRecord): boolean => {
+    const from = w.from?.toLowerCase() || '';
+    const to = w.to?.toLowerCase() || '';
+    return from.includes('rimando') || to.includes('rimando');
+  };
+
+  const completeWires = sanitizedWires.filter(w => !hasRimando(w));
+  const wiresWithRimandi = sanitizedWires.filter(w => hasRimando(w));
+
+  // Se ci sono fili con rimandi, costruisci il grafo e risolvi le connessioni
+  if (wiresWithRimandi.length > 0) {
+    // Include TUTTI i fili nel grafo (anche quelli completi) per costruire le connessioni
+    const graphs = buildWireGraph(sanitizedWires);
+    const resolved = resolveWireConnections(graphs);
+
+    // Dedup finale: combina fili già completi con quelli risolti
+    const finalDedup = new Map<string, WireRecord>();
+
+    // Prima aggiungi i fili completi (priorità)
+    for (const wire of completeWires) {
+      const key = `${wire.id}|${wire.from}|${wire.to}`;
+      finalDedup.set(key, wire);
+    }
+
+    // Poi aggiungi i fili risolti (se non già presenti)
+    for (const wire of resolved) {
+      const key = `${wire.id}|${wire.from}|${wire.to}`;
+      const reverseKey = `${wire.id}|${wire.to}|${wire.from}`;
+      if (!finalDedup.has(key) && !finalDedup.has(reverseKey)) {
+        finalDedup.set(key, wire);
+      }
+    }
+
+    log(`[wire-graph] Input: ${sanitizedWires.length} fili, Completi: ${completeWires.length}, Con rimandi: ${wiresWithRimandi.length}, Risolti: ${resolved.length}, Output: ${finalDedup.size}`);
+
+    return Array.from(finalDedup.values());
+  }
+
+  return sanitizedWires;
 }
 
 function normalizeComponents(components: ComponentRecord[]): ComponentRecord[] {
@@ -434,6 +1214,7 @@ export interface WireRecord {
   terminal_b?: string;
   note?: string;
   page?: number;
+  foglio?: number;  // Sheet number from cartiglio (distinct from PDF page number)
 }
 
 export interface ComponentRecord {
@@ -451,6 +1232,7 @@ export interface ComponentRecord {
 
 export interface ExtractionMetadata {
   source_file: string;
+  panel_id?: string;
   pages_used?: number;
   text_chars?: number;
   truncated_text?: boolean;
@@ -467,12 +1249,215 @@ export interface ExtractionResult {
   components: number;
   warnings: string[];
   metadata: ExtractionMetadata;
+  // Visual graph output paths (optional)
+  graph_dot_path?: string;
+  graph_json_path?: string;
+  graph_html_path?: string;
+  graph_html_url?: string;
 }
 
-interface ModelExtraction {
-  wires?: WireRecord[];
-  components?: ComponentRecord[];
-  warnings?: string[];
+// ============================================================
+// Qwen3-VL Extraction via Ollama
+// ============================================================
+
+interface QwenExtractionResult {
+  ubicazione: string;        // es. "+A1", "+P0", etc.
+  foglio?: number;           // numero foglio dal cartiglio
+  has_schema: boolean;       // true se pagina ha schema di principio
+  wires: WireRecord[];
+  components: ComponentRecord[];
+  warnings: string[];
+}
+
+async function extractWithVision(
+  imageBase64: string,
+  pageNumber: number,
+  debugFolder?: string
+): Promise<QwenExtractionResult> {
+  const model = getVisionModel();
+
+  const prompt = `Analizza questa pagina di schema elettrico SACMI.
+
+STEP 1: Leggi il CARTIGLIO (riquadro in basso a destra) e trova:
+- "Ubicazione" o "Location" o "Yerleşim" → valore (es. "+A1", "+P0")
+- "Foglio" o "Sheet" o "Kağıt" → numero pagina
+
+STEP 2: Determina se la pagina contiene uno SCHEMA ELETTRICO da estrarre:
+- SÌ schema (has_schema=true) = qualsiasi pagina con:
+  • Numeri filo ROSSI (spesso barrati) come 24, 24.1, 1102, 1103
+  • Sigle componenti (QM102, KA115E, XT1, AP601) con pin/terminali
+  • Linee di connessione (solide O tratteggiate)
+  • Include: schemi di potenza, schemi di comando, schemi consensi/segnali
+- NON schema (has_schema=false) = pagine SENZA fili numerati rossi:
+  • Copertina, indice, legenda
+  • BOM/distinta materiali (tabelle senza connessioni)
+  • Layout fisico/disposizione quadro (planimetrie)
+  • Pagine solo testo o tabelle
+
+STEP 3: Se has_schema=true, estrai:
+- FILI: id (numero rosso barrato), from (componente.pin), to (componente.pin)
+  - I numeri dei fili sono ROSSI e spesso BARRATI (barra trasversale)
+  - from/to sono sigle componente con pin (es. "QM376.2", "KM376.1", "-XT1.24")
+  - Se un capo è un rimando pagina, scrivi "rimando X.Y" (es. "rimando 134.8")
+- COMPONENTI: ref (sigla come QM376, KM376, XT1), description
+
+IMPORTANTE:
+- Estrai TUTTI i segmenti di filo, anche quelli con rimandi su entrambi i lati
+- Se un filo si collega a PIÙ componenti, crea UNA RIGA SEPARATA per ogni connessione
+- I componenti con prefisso "-" (es. -QM376) appartengono comunque al quadro indicato in Ubicazione
+
+Rispondi SOLO in JSON valido:
+{
+  "ubicazione": "+A1",
+  "foglio": 133,
+  "has_schema": true,
+  "wires": [{"id": "24", "from": "QM376.2", "to": "KM376.1", "page": ${pageNumber}}],
+  "components": [{"ref": "QM376", "description": "Magnetotermico", "page": ${pageNumber}}],
+  "warnings": []
+}`;
+
+  // Retry loop with exponential backoff for rate limiting
+  for (let attempt = 1; attempt <= VISION_MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://intelligencebox.ai',
+          'X-Title': 'IntelligenceBox Wirelist Extractor'
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:image/png;base64,${imageBase64}`
+                }
+              }
+            ]
+          }],
+          response_format: { type: 'json_object' }
+        })
+      });
+
+      // Handle rate limiting - retry with backoff
+      if (response.status === 503 || response.status === 429) {
+        const waitMs = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+        log(`Pagina ${pageNumber}: rate limited (${response.status}), retry ${attempt}/${VISION_MAX_RETRIES} in ${waitMs / 1000}s...`);
+        if (attempt < VISION_MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        throw new Error(`OpenRouter rate limited (${response.status}) after ${VISION_MAX_RETRIES} retries`);
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenRouter returned ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const content = result.choices?.[0]?.message?.content;
+
+      if (!content) {
+        return {
+          ubicazione: '',
+          has_schema: false,
+          wires: [],
+          components: [],
+          warnings: [`Pagina ${pageNumber}: nessuna risposta da ${model}`]
+        };
+      }
+
+      // Parse JSON response - handle potential markdown code blocks
+      let jsonContent = content.trim();
+      if (jsonContent.startsWith('```json')) {
+        jsonContent = jsonContent.slice(7);
+      } else if (jsonContent.startsWith('```')) {
+        jsonContent = jsonContent.slice(3);
+      }
+      if (jsonContent.endsWith('```')) {
+        jsonContent = jsonContent.slice(0, -3);
+      }
+      jsonContent = jsonContent.trim();
+
+      const parsed = JSON.parse(jsonContent) as QwenExtractionResult;
+
+      // Save debug output if folder specified
+      if (debugFolder) {
+        const paddedNum = String(pageNumber).padStart(4, '0');
+        const jsonPath = path.join(debugFolder, `page-${paddedNum}-extraction.json`);
+        await fs.writeFile(jsonPath, JSON.stringify({
+          pageNumber,
+          ubicazione: parsed.ubicazione,
+          foglio: parsed.foglio,
+          has_schema: parsed.has_schema,
+          wires: parsed.wires || [],
+          components: parsed.components || [],
+          warnings: parsed.warnings || [],
+          rawResponse: content
+        }, null, 2));
+      }
+
+      return {
+        ubicazione: parsed.ubicazione || '',
+        foglio: parsed.foglio,
+        has_schema: parsed.has_schema ?? false,
+        wires: (parsed.wires || []).map(w => ({ ...w, page: pageNumber, foglio: parsed.foglio })),
+        components: (parsed.components || []).map(c => ({ ...c, page: pageNumber })),
+        warnings: parsed.warnings || []
+      };
+
+    } catch (error: any) {
+      // Retry on fetch failures (network errors, connection refused, etc.)
+      const isRetriable = error.message?.includes('fetch failed') ||
+                          error.message?.includes('ECONNRESET') ||
+                          error.message?.includes('ETIMEDOUT') ||
+                          error.message?.includes('ECONNREFUSED');
+
+      if (isRetriable && attempt < VISION_MAX_RETRIES) {
+        const waitMs = Math.pow(2, attempt) * 1000;
+        log(`Pagina ${pageNumber}: ${error.message}, retry ${attempt}/${VISION_MAX_RETRIES} in ${waitMs / 1000}s...`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+
+      log(`Errore vision pagina ${pageNumber}: ${error.message}`);
+      return {
+        ubicazione: '',
+        has_schema: false,
+        wires: [],
+        components: [],
+        warnings: [`Pagina ${pageNumber}: errore ${model} - ${error.message}`]
+      };
+    }
+  }
+
+  // Should not reach here, but TypeScript needs a return
+  return {
+    ubicazione: '',
+    has_schema: false,
+    wires: [],
+    components: [],
+    warnings: [`Pagina ${pageNumber}: max retries exceeded`]
+  };
+}
+
+/**
+ * Verifica se l'ubicazione estratta corrisponde al panel_id richiesto
+ * Normalizza rimuovendo prefissi +/- per match flessibile (A1 == +A1)
+ */
+function pageMatchesPanelId(ubicazione: string, panelId: string): boolean {
+  if (!ubicazione || !panelId) return false;
+  // Normalizza: rimuovi +/- iniziale, rimuovi spazi interni, uppercase
+  // Handles "+ A1" == "+A1" == "A1"
+  const normalize = (s: string) => s.replace(/[\s+\-]/g, '').toUpperCase();
+  return normalize(ubicazione) === normalize(panelId);
 }
 
 async function commandExists(command: string): Promise<boolean> {
@@ -684,11 +1669,6 @@ async function loadImageAsBase64(filePath: string): Promise<string> {
   return buffer.toString('base64');
 }
 
-function truncateForModel(text: string): { text: string; truncated: boolean } {
-  // No truncation: keep the interface but always return the original text
-  return { text, truncated: false };
-}
-
 function heuristicWireParse(text: string): WireRecord[] {
   const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const wires: WireRecord[] = [];
@@ -710,142 +1690,7 @@ function heuristicWireParse(text: string): WireRecord[] {
   return wires;
 }
 
-interface PagePayload {
-  pageImage?: string;
-  pageZoomImages?: PageZoomImage[];
-  pageText?: string;
-  pageIndex: number;
-  totalPages: number;
-  pageNumber?: number;
-  model?: string;
-  project?: string;
-}
-
-async function extractWithModelBatch(params: {
-  pages: PagePayload[];
-  model?: string;
-  project?: string;
-}): Promise<ModelExtraction> {
-  const model = params.model || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
-  const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL
-  });
-
-  const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
-    {
-      type: 'text',
-      text: [
-        'Estrarre lista fili e componenti da uno schema elettrico seguendo le regole R26 (R1-R8: numeri fili rossi, frecce rosse, barre "\\\\", duplicazione per ganci, doppio elenco fili/componenti).',
-        'Nota importante: i numeri dei fili sono spesso stampati in rosso e possono apparire "barrati" (una linea del filo rosso attraversa le cifre). Anche se barrati, vanno letti e usati come ID del filo.',
-        'Ogni pagina può includere una immagine intera + più immagini "Zoom tile" della stessa pagina: usa i tile per leggere numeri piccoli (specialmente i numeri rossi barrati) e l\'immagine intera per il contesto.',
-        'Stai ricevendo un batch di pagine (max 10). Indica per ogni riga il numero di pagina nel campo "page" riferito alla pagina originale.',
-        'Salta pagine di esempio/legenda (spesso marcate "ESEMPIO") e ignora collegamenti/componenti tratteggiati o indicati come esterni/opzionali; non estrarre fili da quei tratti.',
-        'Se un elemento è descritto su più pagine, accumula quantità e mantieni i riferimenti coerenti; non duplicare oggetti già contati.',
-        'Per ogni filo imposta chiaramente il punto di partenza (`from`) e di arrivo (`to`) come sigle/morsetti/dispositivi.',
-        'Per ogni componente aggiungi il campo "wires": array di ID o sigle dei fili collegati (se noti).',
-        'Pattern importante: se trovi "105.8 / 24", l\'ID filo è "24" e la sezione/gauge è "105.8"; non creare nomi come "105.8_L1" o "L1".',
-        'Per componenti come "-QM102/1" il riferimento è "QM102"; il suffisso "/1" va in note o nel terminale, non cambiare il nome in "L1".',
-        'Sezione/gauge: inseriscila solo se appare in chiaro (es. "1,5 mm²", "2x4 mm2", AWG). Rimandi pagina/posizionamenti (es. 160.2, 108.8) NON sono sezioni: lascia vuote Sezione/Colore/Lunghezza se non esplicitate sul filo.',
-        'Per i rimandi (es. "113.8 / 24.1" o frecce rosse con numeri di pagina): usa l\'ID filo (24.1) e metti come from/to il componente visibile; se il capo è solo un rimando di pagina, scrivi "rimando 113.8" (o simile) nel capo e nella nota per non perdere il collegamento.',
-        'Non inventare nomi o suffissi: usa esattamente le sigle viste. Se un capo è solo una coordinata numerica (105.8, 157.4) o manca un capo, non inserire la riga.',
-        'Escludi fili con ID che iniziano per "W" o ID solo di fase (L1/L2/L3/N/PE). NON creare ID con prefissi non visti o combinazioni gauge+fase (es. "106.8_L1").',
-        'Non indovinare: se un dato non è leggibile o manca, lascia il campo vuoto/null. Non proporre ID o collegamenti ipotetici.',
-        'Non aggiungere suffissi o prefissi mai visti nell\'immagine/testo. Riporta solo ciò che è visibile.',
-        'I valori ammessi per ID/Ref devono apparire testualmente nell\'immagine o nel testo estratto; se non li trovi, lascia vuoto.',
-        'Se un campo sembra ambiguo (es. testo tagliato), lascia vuoto invece di inventare.',
-        'Attenzione: numeri come "134.8", "157.4" sono sezioni/quote dei cavi, NON codici componente: non creare componenti con ref numerici o solo decimali.',
-        'Ogni filo deve avere sia `from` sia `to`: se non riesci a leggere almeno un capo, NON inserire la riga.',
-        'Per i componenti, usa solo riferimenti leggibili; se non puoi associare fili credibili, lascia vuoto il campo wires o ometti la riga.',
-        'Restituisci SOLO JSON con la struttura:',
-        '{',
-        '  "wires": [{ "id": string?, "from": string?, "to": string?, "cable": string?, "gauge": string?, "color": string?, "length_mm": number?, "terminal_a": string?, "terminal_b": string?, "note": string? }],',
-        '  "components": [{ "ref": string?, "description": string, "quantity": number?, "manufacturer": string?, "part_number": string?, "location": string?, "note": string?, "wires": string[]? }],',
-        '  "warnings": [string?]',
-        '}',
-        'Non inventare valori: lascia i campi vuoti se non sicuro. Lunghezze in millimetri se presenti. Evita testo narrativo.'
-      ].join('\n')
-    }
-  ];
-
-  if (params.project) {
-    content.push({
-      type: 'text',
-      text: `Commessa/Progetto: ${params.project}`
-    });
-  }
-
-  params.pages.forEach(page => {
-    const pageLabel = page.pageNumber ?? (page.pageIndex + 1);
-    const slotLabel = `${page.pageIndex + 1}/${page.totalPages}`;
-    content.push({
-      type: 'text',
-      text: `Pagina originale ${pageLabel} (slot ${slotLabel})`
-    });
-
-    if (page.pageText) {
-      content.push({
-        type: 'text',
-        text: `Testo pagina ${pageLabel}:\n${page.pageText}`
-      });
-    }
-
-    if (page.pageImage) {
-      content.push({
-        type: 'text',
-        text: `Immagine pagina intera ${pageLabel} (contesto)`
-      });
-      content.push({
-        type: 'image_url',
-        image_url: {
-          url: `data:image/png;base64,${page.pageImage}`,
-          detail: 'high'
-        }
-      });
-    }
-
-    if (page.pageZoomImages?.length) {
-      page.pageZoomImages.forEach((tile, tileIdx) => {
-        content.push({
-          type: 'text',
-          text: `Zoom ${tileIdx + 1}/${page.pageZoomImages!.length} - ${tile.label}`
-        });
-        content.push({
-          type: 'image_url',
-          image_url: {
-            url: `data:image/png;base64,${tile.image}`,
-            detail: 'high'
-          }
-        });
-      });
-    }
-  });
-
-  const result = await client.chat.completions.create({
-    model,
-    temperature: 0.2,
-    messages: [
-      { role: 'system', content: 'Sei un assistente tecnico che restituisce solo JSON valido.' },
-      { role: 'user', content }
-    ],
-    response_format: { type: 'json_object' }
-  });
-
-  const raw = result.choices?.[0]?.message?.content;
-  if (!raw) {
-    log(`Batch: nessuna risposta dal modello`);
-    return { warnings: ['Nessuna risposta dal modello.'] };
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as ModelExtraction;
-    return parsed;
-  } catch (error: any) {
-    return {
-      warnings: [`Impossibile parsare JSON del modello: ${error.message}`]
-    };
-  }
-}
+// Old GPT extraction function removed - now using extractWithVision() via OpenRouter
 
 function buildTaglioFili(wires: WireRecord[]) {
   const aggregates = new Map<string, { cable?: string; gauge?: string; color?: string; total_mm: number; count: number }>();
@@ -921,12 +1766,13 @@ async function buildWorkbook(params: {
 
   const indicazioni = [
     { Campo: 'Sorgente', Valore: params.metadata.source_file },
+    { Campo: 'Quadro', Valore: params.metadata.panel_id || 'n/d' },
     { Campo: 'Progetto', Valore: params.metadata.project || 'n/d' },
     { Campo: 'Note', Valore: params.metadata.note || 'n/d' },
     { Campo: 'Pagine analizzate', Valore: params.metadata.pages_used ?? 'n/d' },
     { Campo: 'Caratteri testo', Valore: params.metadata.text_chars ?? 'n/d' },
     { Campo: 'Testo troncato', Valore: params.metadata.truncated_text ? 'sì' : 'no' },
-    { Campo: 'Modello', Valore: params.metadata.model || DEFAULT_OPENAI_MODEL },
+    { Campo: 'Modello', Valore: params.metadata.model || OPENROUTER_MODEL },
     { Campo: 'Estratto il', Valore: params.metadata.extracted_at }
   ];
   XLSX.utils.book_append_sheet(
@@ -1082,82 +1928,120 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     throw new Error(`Impossibile leggere il file: ${error.message}`);
   }
 
-  const { text: textForModel } = truncateForModel(rawText);
-  // No truncation applied; truncated is always false
+  // textForModel removed - now using Qwen vision directly
 
   let wires: WireRecord[] = [];
   let components: ComponentRecord[] = [];
 
   await reportProgress(progressCtx, 22, 'Preparazione estrazione con modello AI...');
 
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const textualPages = pageTexts.length ? pageTexts : [textForModel];
-      const pageItems = imageSets.length
-        ? imageSets.map((set, i) => ({
-            pageImage: set.full,
-            pageZoomImages: set.zooms,
-            pageText: textualPages[i] ?? textForModel,
-            pageIndex: i,
-            totalPages: imageSets.length,
-            pageNumber: startPage + i,
-            model: input.model,
-            project: input.project
-          }))
-        : textualPages.map((text, i) => ({
-            pageText: text,
-            pageIndex: i,
-            totalPages: textualPages.length,
-            pageNumber: startPage + i,
-            model: input.model,
-            project: input.project
-          }));
+  // Create debug folder if specified
+  let debugFolder: string | undefined;
+  if (input.debug_output_folder) {
+    debugFolder = path.resolve(input.debug_output_folder);
+    await fs.mkdir(debugFolder, { recursive: true });
+    log(`Debug output folder: ${debugFolder}`);
 
-      const batches = chunkArray(pageItems, BATCH_PAGE_LIMIT);
-      log(`Invio ${pageItems.length} pagine al modello in ${batches.length} batch (max ${BATCH_PAGE_LIMIT} per richiesta, concorrenza ${BATCH_CONCURRENCY})`);
-      await reportProgress(progressCtx, 25, `Invio ${pageItems.length} pagine in ${batches.length} batch...`);
+    // Save all page images immediately during extraction setup
+    if (imageSets.length > 0) {
+      log(`Saving ${imageSets.length} page images to debug folder...`);
+      for (let i = 0; i < imageSets.length; i++) {
+        const pageNum = startPage + i;
+        const paddedNum = String(pageNum).padStart(4, '0');
 
-      let completedBatches = 0;
-      const processBatch = async (batch: typeof pageItems, batchIndex: number, totalBatches: number) => {
-        const preparedPages = batch.map(p => {
-          const textToUse = p.pageText || textForModel;
-          const { text: truncatedText } = truncateForModel(textToUse);
-          return {
-            ...p,
-            pageText: truncatedText
-          };
-        });
-
-        const batchResult = await extractWithModelBatch({
-          pages: preparedPages,
-          model: input.model,
-          project: input.project
-        });
-
-        if (batchResult.warnings?.length) {
-          warnings.push(...batchResult.warnings.map(w => `Batch ${batchIndex + 1}: ${w}`));
+        // Save full page image
+        if (imageSets[i].full) {
+          const imagePath = path.join(debugFolder, `page-${paddedNum}.png`);
+          await fs.writeFile(imagePath, Buffer.from(imageSets[i].full, 'base64'));
         }
 
-        wires.push(...(batchResult.wires || []));
-        components.push(...(batchResult.components || []));
+        // Save zoom tile images
+        if (imageSets[i].zooms?.length) {
+          for (let j = 0; j < imageSets[i].zooms.length; j++) {
+            const tile = imageSets[i].zooms[j];
+            const tilePath = path.join(debugFolder, `page-${paddedNum}-tile-${j + 1}.png`);
+            await fs.writeFile(tilePath, Buffer.from(tile.image, 'base64'));
+          }
+        }
 
-        log(`[batch ${batchIndex + 1}/${totalBatches}] fili estratti=${batchResult.wires?.length || 0} preview=${previewArray(batchResult.wires || [], ['id', 'from', 'to'])}`);
-        log(`[batch ${batchIndex + 1}/${totalBatches}] componenti estratti=${batchResult.components?.length || 0} preview=${previewArray(batchResult.components || [], ['ref', 'description', 'wires'])}`);
-
-        // Report batch progress (25% to 80% range for batch processing)
-        completedBatches++;
-        const batchProgress = 25 + Math.round((completedBatches / totalBatches) * 55);
-        await reportProgress(progressCtx, batchProgress, `Batch ${completedBatches}/${totalBatches} completato - ${wires.length} fili, ${components.length} componenti`);
-      };
-
-      await runBatchPool(batches, BATCH_CONCURRENCY, async (batch, idx) => {
-        await processBatch(batch, idx, batches.length);
-      });
-    } catch (error: any) {
-      warnings.push(`Errore chiamando il modello: ${error.message}`);
+        // Log progress every 20 pages
+        if ((i + 1) % 20 === 0 || i === imageSets.length - 1) {
+          log(`Debug images saved: ${i + 1}/${imageSets.length}`);
+        }
+      }
+      log(`All debug images saved to ${debugFolder}`);
     }
+  }
+
+  // ============================================================
+  // Estrazione con Gemini via OpenRouter
+  // ============================================================
+  if (imageSets.length > 0) {
+    const totalPages = imageSets.length;
+    log(`Invio ${totalPages} pagine a ${OPENROUTER_MODEL} via OpenRouter (concorrenza ${VISION_CONCURRENCY})`);
+    await reportProgress(progressCtx, 25, `Estrazione ${totalPages} pagine con Gemini Flash...`);
+
+    let completedPages = 0;
+    let skippedPages = 0;
+
+    // Process pages with concurrency control
+    const processPage = async (pageIndex: number): Promise<void> => {
+      const pageNum = startPage + pageIndex;
+      const imageBase64 = imageSets[pageIndex].full;
+
+      if (!imageBase64) {
+        warnings.push(`Pagina ${pageNum}: immagine mancante`);
+        return;
+      }
+
+      try {
+        const qwenResult = await extractWithVision(imageBase64, pageNum, debugFolder);
+
+        // Filtro su ubicazione (panel_id)
+        if (input.panel_id && !pageMatchesPanelId(qwenResult.ubicazione, input.panel_id)) {
+          log(`Pagina ${pageNum}: ubicazione="${qwenResult.ubicazione}" ≠ "${input.panel_id}" - SKIP`);
+          skippedPages++;
+          return;
+        }
+
+        // Filtro su tipo pagina (schema di principio)
+        if (!qwenResult.has_schema) {
+          log(`Pagina ${pageNum}: no schema di principio - SKIP`);
+          skippedPages++;
+          return;
+        }
+
+        // Accumula risultati
+        wires.push(...qwenResult.wires);
+        components.push(...qwenResult.components);
+        if (qwenResult.warnings.length) {
+          warnings.push(...qwenResult.warnings);
+        }
+
+        log(`Pagina ${pageNum}: ubicazione="${qwenResult.ubicazione}" foglio=${qwenResult.foglio || 'n/d'} - ${qwenResult.wires.length} fili, ${qwenResult.components.length} componenti`);
+
+      } catch (error: any) {
+        warnings.push(`Pagina ${pageNum}: errore - ${error.message}`);
+      }
+
+      // Report progress
+      completedPages++;
+      const progress = 25 + Math.round((completedPages / totalPages) * 55);
+      await reportProgress(progressCtx, progress, `Pagina ${completedPages}/${totalPages} - ${wires.length} fili, ${components.length} componenti (${skippedPages} skip)`);
+    };
+
+    // Run with concurrency pool
+    await runBatchPool(
+      imageSets.map((_, idx) => idx),
+      VISION_CONCURRENCY,
+      async (pageIndex) => {
+        await processPage(pageIndex);
+      }
+    );
+
+    log(`Estrazione completata: ${wires.length} fili, ${components.length} componenti, ${skippedPages} pagine saltate`);
   } else {
-    warnings.push('OPENAI_API_KEY assente: estrazione automatica disattivata.');
+    warnings.push('Nessuna immagine disponibile per estrazione vision');
   }
 
   // Normalizzazioni post-process per ridurre nomi inventati/suffissi
@@ -1180,12 +2064,13 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
   const metadata: ExtractionMetadata = {
     source_file: resolvedPath,
+    panel_id: input.panel_id,
     pages_used: pagesCount,
     text_chars: rawText.length,
     truncated_text: false,
     project: input.project,
     note: input.note,
-    model: input.model || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
+    model: input.model || OPENROUTER_MODEL,
     extracted_at: new Date().toISOString()
   };
 
@@ -1202,6 +2087,51 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
   await reportProgress(progressCtx, 100, `Estrazione completata: ${wires.length} fili, ${components.length} componenti`, 'completed');
 
+  // Visual graph generation (if requested)
+  let graphDotPath: string | undefined;
+  let graphJsonPath: string | undefined;
+  let graphHtmlPath: string | undefined;
+  let graphHtmlUrl: string | undefined;
+
+  if (input.generate_graph && wires.length > 0) {
+    await reportProgress(progressCtx, 95, 'Generazione grafo visuale...');
+
+    const schemaGraph = buildSchemaGraph(wires, components);
+    const format = input.graph_format || 'html';
+    const basePath = outputPath.replace(/\.xlsx$/, '');
+
+    // Generate DOT format
+    if (format === 'dot' || format === 'all') {
+      graphDotPath = `${basePath}-graph.dot`;
+      const dotContent = generateDotGraph(schemaGraph);
+      await fs.writeFile(graphDotPath, dotContent, 'utf-8');
+      log(`Grafo DOT generato: ${graphDotPath}`);
+    }
+
+    // Generate JSON format
+    if (format === 'json' || format === 'all') {
+      graphJsonPath = `${basePath}-graph.json`;
+      const jsonContent = generateJsonGraph(schemaGraph);
+      await fs.writeFile(graphJsonPath, jsonContent, 'utf-8');
+      log(`Grafo JSON generato: ${graphJsonPath}`);
+    }
+
+    // Generate HTML format (interactive D3.js visualization)
+    if (format === 'html' || format === 'all') {
+      graphHtmlPath = `${basePath}-graph.html`;
+      const htmlContent = generateHtmlGraph(schemaGraph);
+      await fs.writeFile(graphHtmlPath, htmlContent, 'utf-8');
+      log(`Grafo HTML generato: ${graphHtmlPath}`);
+
+      // Generate web-accessible URL
+      graphHtmlUrl = graphHtmlPath
+        .replace(/^\/dataai\//, '/files/')
+        .replace(/^\/files\/dataai\//, '/files/');
+    }
+
+    log(`Grafo generato con ${schemaGraph.nodes.length} nodi e ${schemaGraph.edges.length} archi`);
+  }
+
   // Return standardized paths for frontend URL resolution
   // output_excel_path: full container path (e.g., /dataai/outputs/wirelist-xxx.xlsx)
   // output_url: web-accessible relative path starting with /files/ (frontend will resolve to absolute URL)
@@ -1216,6 +2146,10 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     wires: wires.length,
     components: components.length,
     warnings,
-    metadata
+    metadata,
+    graph_dot_path: graphDotPath,
+    graph_json_path: graphJsonPath,
+    graph_html_path: graphHtmlPath,
+    graph_html_url: graphHtmlUrl
   };
 }

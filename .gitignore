@@ -61,3 +61,10 @@ Thumbs.db
 
 #.venv
 .venv
+
+# Debug output from wirelist extraction
+debug-output/
+debug-*/
+*.xlsx
+test-*.mjs
+full-extraction*

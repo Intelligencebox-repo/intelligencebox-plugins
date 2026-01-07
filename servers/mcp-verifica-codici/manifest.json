@@ -1,103 +1,56 @@
 {
   "id": "verifica-codici",
   "name": "Verifica Codici",
-  "description": "Un server MCP che esegue una validazione incrociata tra un elenco di documenti e i codici identificativi presenti all'interno di ogni singolo file. Supporta sia verifica tramite RAG che validazione diretta di cartelle.",
+  "description": "MCP server for comparing codici from CSV files against extracted document metadata. Supports dynamic field mappings and multi-column code composition.",
   "author": "intelligencebox",
-  "version": "1.5.0",
-  "icon": "🔎",
+  "version": "2.0.0",
+  "icon": "CheckSquare",
   "category": "business",
-  "tags": ["verifica codici", "validazione"],
+  "tags": ["verifica codici", "validation", "comparison", "metadata"],
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-verifica-codici:latest",
   "transport": "stdio",
-  "entrypoint": ["python", "-m", "verifica_codici"],
+  "entrypoint": ["node", "dist/index.js"],
   "configSchema": {
-    "RAG_ENDPOINT": {
+    "BOX_SERVER_URL": {
       "type": "string",
-      "description": "URL endpoint per RAG search dei documenti nella collection",
+      "description": "URL of the box-server for metadata queries",
       "required": true,
-      "default": "http://host.docker.internal:8090/query"
+      "default": "http://host.docker.internal:3001"
     },
-    "QUERY_HOST": {
+    "METADATA_QUERY_ENDPOINT": {
       "type": "string",
-      "description": "Host/base URL del servizio di query già indicizzato (es. http://host.docker.internal:8090 o http://host.docker.internal:3001).",
+      "description": "API endpoint path for metadata SQL queries",
       "required": false,
-      "default": "http://host.docker.internal:8090"
-    },
-    "QUERY_ENDPOINT": {
-      "type": "string",
-      "description": "Path dell'endpoint di query (es. '/query' o '/api/collections/query').",
-      "required": false,
-      "default": "/query"
-    },
-    "OLLAMA_URL": {
-      "type": "string",
-      "description": "Endpoint HTTP per il modello VLM servito da Ollama (es. http://localhost:11434 in sviluppo, http://host.docker.internal:11434 in container).",
-      "required": false,
-      "default": "http://host.docker.internal:11434"
-    },
-    "OLLAMA_VLM_MODEL": {
-      "type": "string",
-      "description": "Nome del modello VLM da usare con Ollama per l'estrazione dei codici.",
-      "required": false,
-      "default": "qwen3-vl:4b"
-    },
-    "OLLAMA_TIMEOUT": {
-      "type": "number",
-      "description": "Timeout (in secondi) per la richiesta al modello VLM Ollama.",
-      "required": false,
-      "default": 60
+      "default": "/api/metadata/query"
     }
   },
   "volumeMountsConfig": {
     "dataai": {
-      "envVars": ["DATA_AI_PATH", "MOUNT_PATH", "FILE_DIRECTORY"],
-      "description": "Directory principale per i file AI/documenti processati",
+      "envVars": ["DATA_AI_PATH"],
+      "description": "Directory for accessing CSV files and documents",
       "required": true
-    },
-    "store_image": {
-      "envVars": ["IMAGE_DIRECTORY", "IMAGE_DIRECTORY_PATH"],
-      "description": "Directory per storage delle immagini",
-      "required": false
-    },
-    "output": {
-      "envVars": ["OUTPUT_DIR", "OUTPUT_PATH"],
-      "description": "Directory per output e file generati",
-      "required": false
-    },
-    "data": {
-      "envVars": ["DATA_PATH", "MOUNT_PATH"],
-      "description": "Directory dati generica",
-      "required": false
     }
   },
   "dockerDefaults": {
-    "containerPort": 8080,
-    "sseEndpoint": "/sse",
-    "protocol": "tcp",
-    "needsPortMapping": true,
-    "defaultHostPort": 8080,
     "needsFileAccess": true,
     "volumeMounts": {
-      "dataai": "/dataai",
-      "store_image": "/store_image",
-      "output": "/output",
-      "data": "/data"
+      "dataai": "/dataai"
     },
     "resources": {
-      "memory": "512m",
-      "cpus": "0.5"
+      "memory": "128m",
+      "cpus": "0.2"
     }
   },
   "requirements": {
-    "minMemory": "256Mi",
-    "minCpu": 0.2,
+    "minMemory": "64Mi",
+    "minCpu": 0.1,
     "capabilities": ["network"]
   },
   "features": [
-    "Analisi di un PDF contenente un elenco di documenti.",
-    "Recupero dei singoli file PDF da verificare.",
-    "Elaborazione di immagine (cropping e pulizia) per isolare i codici.",
-    "Estrazione del testo dei codici tramite OCR.",
-    "Confronto tra codici attesi ed estratti e generazione di un'analisi finale."
+    "Compare CSV codici list against metadata database",
+    "Dynamic field mappings - map any columns to any fields",
+    "Multi-column code composition with custom separators",
+    "Customizable comparison settings (case sensitivity, whitespace, partial match)",
+    "Generate detailed JSON report with matched, mismatched, and missing entries"
   ]
 }

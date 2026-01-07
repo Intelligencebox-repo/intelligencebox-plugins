@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const ExtractWirelistSchema = z.object({
   file_path: z.string().min(1, 'file_path is required'),
+  panel_id: z.string().min(1, 'panel_id è obbligatorio (es. "+A1")'),
   output_excel_path: z.string().optional(),
   project: z.string().optional(),
   note: z.string().optional(),
@@ -12,7 +13,12 @@ export const ExtractWirelistSchema = z.object({
   use_vision: z.boolean().default(true).optional(),
   add_raw_text_sheet: z.boolean().default(true).optional(),
   model: z.string().optional(),
-  invocation_id: z.string().optional()
+  invocation_id: z.string().optional(),
+  // Visual graph generation options
+  generate_graph: z.boolean().default(false).optional(),
+  graph_format: z.enum(['dot', 'json', 'html', 'all']).default('html').optional(),
+  // Debug mode: save each page's image and JSON extraction to a folder
+  debug_output_folder: z.string().optional()
 });
 
 export type ExtractWirelistInput = z.infer<typeof ExtractWirelistSchema>;
