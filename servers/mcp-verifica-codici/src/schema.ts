@@ -294,6 +294,11 @@ export function zodToJsonSchema(schema: z.ZodSchema): Record<string, unknown> {
       };
     }
 
+    case 'ZodEffects': {
+      // Handle refinements (.refine(), .transform(), etc.) - process the inner schema
+      return zodToJsonSchema(def.schema);
+    }
+
     case 'ZodObject': {
       const properties: Record<string, unknown> = {};
       const required: string[] = [];
