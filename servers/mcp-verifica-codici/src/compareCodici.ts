@@ -9,6 +9,8 @@ import type {
   FieldMapping,
   MatchDetail,
   SourceField,
+  TableSource,
+  TableStats,
 } from './schema.js';
 import { ComparisonSettingsSchema } from './schema.js';
 import {
@@ -240,8 +242,29 @@ export function isValidCode(value: string, prefix?: string): boolean {
 // Main Comparison Logic
 // ============================================================================
 
+/** Helper type for table entry with source tracking */
+interface TableEntryWithSource {
+  row: TableRow;
+  tableName: string;
+  tableColumns: SourceField[];
+}
+
+/**
+ * Resolves table sources from input - handles both single table_source and multiple table_sources
+ */
+function resolveTableSources(input: CompareCodiciInput): TableSource[] {
+  if (input.table_sources && input.table_sources.length > 0) {
+    return input.table_sources;
+  }
+  if (input.table_source) {
+    return [input.table_source];
+  }
+  throw new Error('Either table_source or table_sources must be provided');
+}
+
 /**
  * Performs the comparison between extracted table data and folder metadata.
+ * Supports comparing against multiple tables.
  *
  * @param input - The compare_codici tool input
  * @returns Comparison report
@@ -249,39 +272,32 @@ export function isValidCode(value: string, prefix?: string): boolean {
 export async function compareCodici(input: CompareCodiciInput): Promise<ComparisonReport> {
   const startTime = Date.now();
 
-  // 1. Resolve settings
+  // 1. Resolve settings and table sources
   const settings = resolveSettings(input);
+  const tableSources = resolveTableSources(input);
+  const isMultiTable = tableSources.length > 1;
+
   process.stderr.write(`[compareCodici] Settings: ${JSON.stringify(settings)}\n`);
+  process.stderr.write(`[compareCodici] Mode: ${isMultiTable ? 'multi-table' : 'single-table'} (${tableSources.length} tables)\n`);
   if (input.code_prefix) {
     process.stderr.write(`[compareCodici] Code prefix filter: "${input.code_prefix}"\n`);
   }
 
   // 2. Extract column/field names from source configurations
   const folderFieldNames = extractColumnNames(input.folder_metadata.fields);
-  const tableColumnNames = extractColumnNames(input.table_source.columns);
-
   process.stderr.write(`[compareCodici] Folder fields: ${folderFieldNames.join(', ')}\n`);
-  process.stderr.write(`[compareCodici] Table columns: ${tableColumnNames.join(', ')}\n`);
 
-  // 3. Load data from both sources
+  // 3. Load folder metadata
   process.stderr.write(`[compareCodici] Querying folder metadata for documentsVectorId: ${input.documentsVectorId}\n`);
   const folderRows = await queryFolderMetadata(input.documentsVectorId, folderFieldNames);
+  process.stderr.write(`[compareCodici] Loaded ${folderRows.length} folder documents\n`);
 
-  process.stderr.write(`[compareCodici] Querying extracted table from listaVectorId: ${input.listaVectorId}, table: ${input.table_source.table_name || 'default'}\n`);
-  const tableRows = await queryExtractedTable(
-    input.listaVectorId,
-    input.table_source.table_name,
-    tableColumnNames
-  );
-
-  process.stderr.write(`[compareCodici] Loaded ${folderRows.length} folder documents and ${tableRows.length} table rows\n`);
-
-  // 3b. Collect diagnostics if either query returned 0 rows or all values are empty
+  // 3b. Initialize diagnostics
   const diagnostics: DiagnosticInfo = {};
   const warnings: string[] = [];
   const suggestions: string[] = [];
 
-  // Check if all folder field values are empty (even if rows returned)
+  // Check if all folder field values are empty
   const folderHasEmptyValues = folderRows.length > 0 && folderRows.every(row => {
     return folderFieldNames.every(field => {
       const value = row[field];
@@ -297,13 +313,11 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
       warnings.push(`La cartella documenti (${input.documentsVectorId}) non ha restituito righe per i campi richiesti: ${folderFieldNames.join(', ')}`);
     }
 
-    // Fetch available fields for diagnostic
     const availableFields = await listAvailableFields(input.documentsVectorId);
     if (availableFields.length > 0) {
       diagnostics.availableFolderFields = availableFields;
       suggestions.push(`Campi metadata disponibili nella cartella documenti: ${availableFields.join(', ')}`);
 
-      // Check if any available field is similar to requested fields (case-insensitive match)
       const similarFields = availableFields.filter(available =>
         folderFieldNames.some(requested =>
           available.toLowerCase() === requested.toLowerCase() && available !== requested
@@ -319,54 +333,92 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
     }
   }
 
-  if (tableRows.length === 0) {
-    warnings.push(`La tabella lista codici (${input.listaVectorId}) non ha restituito righe`);
+  // 4. Load all tables and combine data
+  const tableByKey = new Map<string, TableEntryWithSource>();
+  const perTableStats: Map<string, TableStats> = new Map();
+  let totalTableRows = 0;
+  let totalFilteredEntries = 0;
 
-    // Fetch available tables for diagnostic
+  const primaryMapping = getPrimaryMapping(input.field_mappings);
+  const tableNames: string[] = [];
+
+  for (const tableSource of tableSources) {
+    const tableName = tableSource.table_name || 'default';
+    tableNames.push(tableName);
+    const tableColumnNames = extractColumnNames(tableSource.columns);
+
+    process.stderr.write(`[compareCodici] Querying table "${tableName}" with columns: ${tableColumnNames.join(', ')}\n`);
+
+    const tableRows = await queryExtractedTable(
+      input.listaVectorId,
+      tableSource.table_name,
+      tableColumnNames
+    );
+
+    process.stderr.write(`[compareCodici] Table "${tableName}": ${tableRows.length} rows\n`);
+    totalTableRows += tableRows.length;
+
+    // Initialize per-table stats
+    perTableStats.set(tableName, {
+      tableName,
+      totalEntries: tableRows.length,
+      matched: 0,
+      partialMatch: 0,
+      missingFromFolder: 0,
+    });
+
+    // Add rows to combined lookup - filter by code_prefix if specified
+    let filteredCount = 0;
+    for (const row of tableRows) {
+      const rawKey = composeTableValue(row, primaryMapping.name, tableSource.columns);
+
+      if (!isValidCode(rawKey, input.code_prefix)) {
+        filteredCount++;
+        continue;
+      }
+
+      const key = normalizeValue(rawKey, settings);
+      if (key) {
+        // If key already exists from another table, keep the first one
+        if (!tableByKey.has(key)) {
+          tableByKey.set(key, {
+            row,
+            tableName,
+            tableColumns: tableSource.columns,
+          });
+        }
+      }
+    }
+
+    if (filteredCount > 0) {
+      totalFilteredEntries += filteredCount;
+      const stats = perTableStats.get(tableName)!;
+      stats.totalEntries -= filteredCount;
+    }
+
+    if (tableRows.length === 0) {
+      warnings.push(`La tabella "${tableName}" non ha restituito righe`);
+    }
+  }
+
+  if (totalFilteredEntries > 0) {
+    diagnostics.filteredTableEntries = totalFilteredEntries;
+    suggestions.push(`Filtrate ${totalFilteredEntries} voci totali che non iniziano con "${input.code_prefix}"`);
+  }
+
+  // Fetch available tables for diagnostics if all tables are empty
+  if (tableByKey.size === 0 && tableSources.length > 0) {
     const availableTables = await listTables(input.listaVectorId);
     if (availableTables.length > 0) {
       diagnostics.availableTables = availableTables.map(t => t.name);
       suggestions.push(`Tabelle disponibili: ${availableTables.map(t => `"${t.name}" (${t.rowCount} righe)`).join(', ')}`);
-      suggestions.push('Specifica il nome corretto della tabella in table_source.table_name');
     } else {
       suggestions.push('Nessuna tabella trovata. Esegui prima l\'estrazione tabelle sul PDF lista codici.');
     }
   }
 
-  if (warnings.length > 0) diagnostics.warnings = warnings;
-  if (suggestions.length > 0) diagnostics.suggestions = suggestions;
-
-  // 4. Get primary mapping for key generation
-  const primaryMapping = getPrimaryMapping(input.field_mappings);
-
-  // 5. Build lookup maps by primary key
-  const tableByKey = new Map<string, { row: TableRow; index: number }>();
+  // 5. Build folder metadata lookup
   const folderByKey = new Map<string, FolderMetadataRow>();
-
-  // Build table lookup - filter out invalid codes (section headers) if code_prefix is specified
-  let filteredTableEntries = 0;
-  for (const row of tableRows) {
-    const rawKey = composeTableValue(row, primaryMapping.name, input.table_source.columns);
-
-    // Filter by code_prefix if specified
-    if (!isValidCode(rawKey, input.code_prefix)) {
-      filteredTableEntries++;
-      continue;  // Skip entries not matching prefix
-    }
-
-    const key = normalizeValue(rawKey, settings);
-    if (key) {
-      tableByKey.set(key, { row, index: tableByKey.size });
-    }
-  }
-
-  // Add filtered count to diagnostics if any were filtered
-  if (filteredTableEntries > 0) {
-    diagnostics.filteredTableEntries = filteredTableEntries;
-    suggestions.push(`Filtrate ${filteredTableEntries} voci che non iniziano con "${input.code_prefix}"`);
-  }
-
-  // Build folder metadata lookup
   for (const row of folderRows) {
     const key = normalizeValue(
       composeFolderValue(row, primaryMapping.name, input.folder_metadata.fields),
@@ -379,67 +431,63 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
 
   process.stderr.write(`[compareCodici] Table entries by key: ${tableByKey.size}, Folder entries by key: ${folderByKey.size}\n`);
 
-  // 6. Compare entries: for each table row, find best matching folder metadata using fuzzy matching
+  // 6. Compare entries with fuzzy matching
   const entries: ComparisonEntry[] = [];
   const matchDetails: MatchDetail[] = [];
   const processedFolderKeys = new Set<string>();
 
   process.stderr.write(`[compareCodici] Using similarity threshold: ${settings.similarity_threshold}\n`);
 
-  // Check table entries against folder metadata using fuzzy token matching
-  for (const [tableKey, { row: tableRow }] of tableByKey) {
-    // Get original (non-normalized) table code for match details
-    const originalTableCode = composeTableValue(tableRow, primaryMapping.name, input.table_source.columns);
+  for (const [tableKey, tableEntry] of tableByKey) {
+    const { row: tableRow, tableName, tableColumns } = tableEntry;
+    const originalTableCode = composeTableValue(tableRow, primaryMapping.name, tableColumns);
 
-    // Find BEST matching folder entry by similarity score
+    // Find best matching folder entry
     let bestMatch: { row: FolderMetadataRow; key: string; score: number } | null = null;
 
     for (const [folderKey, folderRow] of folderByKey) {
       const score = calculateSimilarity(tableKey, folderKey);
-
-      // Update best match if this score is above threshold and better than previous
       if (score >= settings.similarity_threshold && (!bestMatch || score > bestMatch.score)) {
         bestMatch = { row: folderRow, key: folderKey, score };
       }
     }
 
+    const stats = perTableStats.get(tableName)!;
+
     if (!bestMatch) {
-      // Missing from folder - table entry has no matching document
+      stats.missingFromFolder++;
       entries.push({
         primaryKey: tableKey,
         status: 'missing_from_folder',
+        sourceTable: isMultiTable ? tableName : undefined,
         fields: buildFieldResults(
           input.field_mappings,
           tableRow,
           undefined,
-          input.table_source.columns,
+          tableColumns,
           input.folder_metadata.fields,
           settings
         ),
         tableRow: { ...tableRow },
       });
     } else {
-      // Found match - mark folder key as processed
       processedFolderKeys.add(bestMatch.key);
       const matchedFolderRow = bestMatch.row;
-
-      // Get original (non-normalized) folder code for match details
       const originalFolderCode = composeFolderValue(matchedFolderRow, primaryMapping.name, input.folder_metadata.fields);
 
-      // Add to matchDetails for verification
       matchDetails.push({
         tableCode: originalTableCode,
         folderCode: originalFolderCode,
         score: bestMatch.score,
         documentName: matchedFolderRow.documentName,
+        sourceTable: isMultiTable ? tableName : undefined,
       });
 
-      // Compare all fields
       const fieldResults = buildFieldResults(
         input.field_mappings,
         tableRow,
         matchedFolderRow,
-        input.table_source.columns,
+        tableColumns,
         input.folder_metadata.fields,
         settings
       );
@@ -448,13 +496,19 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
         .filter(m => m.required)
         .every(m => fieldResults[m.name].match);
       const anyMismatch = Object.values(fieldResults).some(r => !r.match);
+      const status = allRequiredMatch ? (anyMismatch ? 'partial' : 'matched') : 'partial';
+
+      if (status === 'matched') {
+        stats.matched++;
+      } else {
+        stats.partialMatch++;
+      }
 
       entries.push({
         primaryKey: tableKey,
-        status: allRequiredMatch
-          ? (anyMismatch ? 'partial' : 'matched')
-          : 'partial',
-        matchScore: bestMatch.score,  // Include similarity score
+        status,
+        matchScore: bestMatch.score,
+        sourceTable: isMultiTable ? tableName : undefined,
         fields: fieldResults,
         tableRow: { ...tableRow },
         folderMetadata: {
@@ -471,7 +525,9 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
     }
   }
 
-  // Check folder entries not in table (documents not in lista codici)
+  // Check folder entries not in any table
+  // Use the first table source for field results (or create empty if none)
+  const defaultTableColumns = tableSources[0]?.columns || [];
   for (const [key, folderRow] of folderByKey) {
     if (!processedFolderKeys.has(key)) {
       entries.push({
@@ -481,7 +537,7 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
           input.field_mappings,
           undefined,
           folderRow,
-          input.table_source.columns,
+          defaultTableColumns,
           input.folder_metadata.fields,
           settings
         ),
@@ -499,10 +555,8 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
     }
   }
 
-  // 7. Build summary with score distribution
+  // 7. Build summary
   const matchedEntries = entries.filter(e => e.matchScore !== undefined);
-
-  // Calculate score distribution
   const scoreDistribution = {
     exact: matchedEntries.filter(e => e.matchScore === 1).length,
     high: matchedEntries.filter(e => e.matchScore! >= 0.9 && e.matchScore! < 1).length,
@@ -511,27 +565,27 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
   };
 
   const summary: ComparisonSummary = {
-    totalTableEntries: tableRows.length,
+    totalTableEntries: totalTableRows,
     totalFolderDocuments: folderRows.length,
     matched: entries.filter(e => e.status === 'matched').length,
     partialMatch: entries.filter(e => e.status === 'partial').length,
     missingFromFolder: entries.filter(e => e.status === 'missing_from_folder').length,
     missingFromTable: entries.filter(e => e.status === 'missing_from_table').length,
+    perTableStats: isMultiTable ? Array.from(perTableStats.values()) : undefined,
     scoreDistribution,
     matchDetails: matchDetails.length > 0 ? matchDetails : undefined,
   };
 
-  // 7b. Additional diagnostics if ALL entries are missing_from_folder (likely field mismatch)
+  // 7b. Additional diagnostics for all missing
   const allMissingFromFolder = summary.matched === 0 &&
     summary.partialMatch === 0 &&
     summary.missingFromFolder > 0 &&
     summary.missingFromTable === 0;
 
   if (allMissingFromFolder && folderRows.length > 0) {
-    warnings.push(`ATTENZIONE: Tutti i ${summary.missingFromFolder} codici della tabella risultano "missing from folder" nonostante ci siano ${folderRows.length} documenti nella cartella.`);
-    warnings.push('Questo indica che i valori dei codici nei documenti non corrispondono a quelli della tabella.');
+    warnings.push(`ATTENZIONE: Tutti i ${summary.missingFromFolder} codici delle tabelle risultano "missing from folder" nonostante ci siano ${folderRows.length} documenti nella cartella.`);
+    warnings.push('Questo indica che i valori dei codici nei documenti non corrispondono a quelli delle tabelle.');
 
-    // Fetch available fields if not already done
     if (!diagnostics.availableFolderFields) {
       const availableFields = await listAvailableFields(input.documentsVectorId);
       if (availableFields.length > 0) {
@@ -540,7 +594,6 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
       }
     }
 
-    // Show sample of folder keys vs table keys for debugging
     const sampleFolderKeys = Array.from(folderByKey.keys()).slice(0, 5);
     const sampleTableKeys = Array.from(tableByKey.keys()).slice(0, 5);
     if (sampleFolderKeys.length > 0) {
@@ -549,12 +602,10 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
     }
     if (sampleTableKeys.length > 0) {
       diagnostics.sampleTableKeys = sampleTableKeys;
-      suggestions.push(`Esempio di chiavi nella tabella: ${sampleTableKeys.join(', ')}`);
+      suggestions.push(`Esempio di chiavi nelle tabelle: ${sampleTableKeys.join(', ')}`);
     }
-
   }
 
-  // Always update diagnostics arrays if there are any warnings or suggestions
   if (warnings.length > 0) diagnostics.warnings = warnings;
   if (suggestions.length > 0) diagnostics.suggestions = suggestions;
 
@@ -569,13 +620,13 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
     parameters: {
       documentsVectorId: input.documentsVectorId,
       listaVectorId: input.listaVectorId,
-      tableName: input.table_source.table_name,
+      tableName: isMultiTable ? undefined : tableNames[0],
+      tableNames: isMultiTable ? tableNames : undefined,
       fieldMappings: input.field_mappings,
     },
     settings,
   };
 
-  // Add diagnostics if any issues found
   if (Object.keys(diagnostics).length > 0) {
     report.diagnostics = diagnostics;
   }

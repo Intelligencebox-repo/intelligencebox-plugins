@@ -100,7 +100,11 @@ table_source.columns[].column = "codice_elaborato"`,
 2. POI chiama list_tables(listaVectorId) → ottieni nome tabella e colonne ESATTE
 3. INFINE chiama compare_codici con i valori corretti
 
-COSA FA: Confronta i codici estratti dai documenti con una tabella "lista codici".
+COSA FA: Confronta i codici estratti dai documenti con una o più tabelle "lista codici".
+
+🆕 SUPPORTO MULTI-TABELLA:
+Puoi confrontare i documenti con TUTTE le tabelle in una sola chiamata!
+Usa "table_sources" (array) invece di "table_source" (singolo).
 
 ⚠️ IMPORTANTE - USA code_prefix PER FILTRARE INTESTAZIONI DI SEZIONE:
 Le tabelle spesso contengono righe di intestazione/categoria come:
@@ -116,7 +120,7 @@ STRUTTURA DEI PARAMETRI:
 - "column" = nome REALE del campo/colonna nel database
 - "code_prefix" = prefisso che i codici validi devono avere (es: "DSA", "ABC123")
 
-TEMPLATE DA COPIARE (sostituisci i valori):
+TEMPLATE SINGOLA TABELLA:
 {
   "documentsVectorId": "<id documenti>",
   "listaVectorId": "<id lista>",
@@ -131,19 +135,24 @@ TEMPLATE DA COPIARE (sostituisci i valori):
   "field_mappings": [{ "name": "codice", "required": true }]
 }
 
-ESEMPIO CONCRETO:
-- list_document_fields restituisce: ["Codice", "Descrizione"]
-- list_tables restituisce: "elenco_elaborati_2" con colonna "codice_elaborato"
-- I codici validi iniziano con "DSA" (es: DSA01004-000-F-344...)
-- Risultato:
+🆕 TEMPLATE MULTI-TABELLA (confronta con TUTTE le tabelle):
 {
-  "documentsVectorId": "e725...",
-  "listaVectorId": "454e...",
-  "code_prefix": "DSA",
-  "folder_metadata": { "fields": [{ "name": "codice", "column": "Codice" }] },
-  "table_source": { "table_name": "elenco_elaborati_2", "columns": [{ "name": "codice", "column": "codice_elaborato" }] },
+  "documentsVectorId": "<id documenti>",
+  "listaVectorId": "<id lista>",
+  "folder_metadata": {
+    "fields": [{ "name": "codice", "column": "<CAMPO_DA_LIST_DOCUMENT_FIELDS>" }]
+  },
+  "table_sources": [
+    { "table_name": "elaborati_generali_e_relazioni_specialistiche", "columns": [{ "name": "codice", "column": "codice" }] },
+    { "table_name": "elaborati_descrittivi", "columns": [{ "name": "codice", "column": "codice" }] },
+    { "table_name": "elaborati_grafici", "columns": [{ "name": "codice", "column": "codice" }] },
+    { "table_name": "progetto_prevenzione_incendi", "columns": [{ "name": "codice", "column": "codice" }] },
+    { "table_name": "progetto_strutturale", "columns": [{ "name": "codice", "column": "codice" }] }
+  ],
   "field_mappings": [{ "name": "codice", "required": true }]
-}`,
+}
+
+Il report includerà statistiche per-tabella (perTableStats) e ogni entry avrà sourceTable per identificare la tabella di provenienza.`,
     inputSchema: zodToJsonSchema(CompareCodiciSchema) as { type: 'object'; properties?: Record<string, object>; required?: string[] }
   }
 ];

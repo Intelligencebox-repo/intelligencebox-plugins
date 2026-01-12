@@ -71,6 +71,21 @@ export const FieldMappingSchema = z.object({
 export type FieldMapping = z.infer<typeof FieldMappingSchema>;
 
 // ============================================================================
+// Table Source Schema
+// ============================================================================
+
+/** Schema for a single table source configuration */
+export const TableSourceSchema = z.object({
+  /** Name of the table to query (e.g., "elaborati_generali_e_relazioni_specialistiche") */
+  table_name: z.string().optional().describe('Name of the extracted table to query'),
+
+  /** Columns to extract from the table */
+  columns: z.array(SourceFieldSchema).min(1).describe('Columns to extract from the table'),
+}).describe('Configuration for an extracted table source');
+
+export type TableSource = z.infer<typeof TableSourceSchema>;
+
+// ============================================================================
 // Main Tool Input Schema
 // ============================================================================
 
@@ -87,14 +102,13 @@ export const CompareCodiciSchema = z.object({
     fields: z.array(SourceFieldSchema).min(1).describe('Fields to extract from document metadata'),
   }).describe('Configuration for folder metadata source'),
 
-  /** Source 2: Extracted table (from VectorDataset/SQLite) */
-  table_source: z.object({
-    /** Name of the table to query (e.g., "Elenco Elaborati") */
-    table_name: z.string().optional().describe('Name of the extracted table to query'),
+  /** Source 2: Single extracted table (from VectorDataset/SQLite) - use this OR table_sources */
+  table_source: TableSourceSchema.optional().describe('Configuration for single table source (use this OR table_sources)'),
 
-    /** Columns to extract from the table */
-    columns: z.array(SourceFieldSchema).min(1).describe('Columns to extract from the table'),
-  }).describe('Configuration for extracted table source'),
+  /** Source 2 alternative: Multiple extracted tables - use this OR table_source */
+  table_sources: z.array(TableSourceSchema).min(1).optional().describe(
+    'Configuration for multiple table sources - all tables will be queried and results aggregated'
+  ),
 
   /** Field mappings - which fields to compare between the two sources */
   field_mappings: z.array(FieldMappingSchema).min(1).describe('Fields to compare'),
@@ -106,7 +120,10 @@ export const CompareCodiciSchema = z.object({
   code_prefix: z.string().optional().describe(
     'Prefix that valid codes must start with. Codes not starting with this prefix will be filtered out (e.g., section headers).'
   ),
-});
+}).refine(
+  (data) => data.table_source || data.table_sources,
+  { message: 'Either table_source or table_sources must be provided' }
+);
 
 export type CompareCodiciInput = z.infer<typeof CompareCodiciSchema>;
 
@@ -132,6 +149,9 @@ export interface ComparisonEntry {
   /** Similarity score (0-1) for fuzzy matching. Higher = better match. */
   matchScore?: number;
 
+  /** Name of the source table this entry came from (for multi-table comparisons) */
+  sourceTable?: string;
+
   /** Per-field comparison results */
   fields: Record<string, FieldComparisonResult>;
 
@@ -152,6 +172,16 @@ export interface MatchDetail {
   folderCode: string;    // Original code from document
   score: number;         // Similarity score (0-1)
   documentName?: string; // Document filename for reference
+  sourceTable?: string;  // Name of the source table (for multi-table comparisons)
+}
+
+/** Per-table statistics for multi-table comparisons */
+export interface TableStats {
+  tableName: string;
+  totalEntries: number;
+  matched: number;
+  partialMatch: number;
+  missingFromFolder: number;
 }
 
 /** Summary statistics */
@@ -162,6 +192,8 @@ export interface ComparisonSummary {
   partialMatch: number;
   missingFromFolder: number;
   missingFromTable: number;
+  /** Per-table breakdown for multi-table comparisons */
+  perTableStats?: TableStats[];
   /** Score distribution - count of matches in each score range */
   scoreDistribution?: {
     exact: number;      // score = 1.0
@@ -199,7 +231,8 @@ export interface ComparisonReport {
   parameters: {
     documentsVectorId: string;
     listaVectorId: string;
-    tableName?: string;
+    tableName?: string;        // For single table mode
+    tableNames?: string[];     // For multi-table mode
     fieldMappings: FieldMapping[];
   };
   settings: ComparisonSettings;
