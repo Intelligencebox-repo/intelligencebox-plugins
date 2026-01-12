@@ -49,6 +49,9 @@ export const ComparisonSettingsSchema = z.object({
 
   /** Skip empty/null values when comparing (default: true) */
   skip_empty: z.boolean().default(true).describe('Skip empty values in comparison'),
+
+  /** Minimum similarity score (0-1) for fuzzy token matching (default: 0.6 = 60%) */
+  similarity_threshold: z.number().min(0).max(1).default(0.6).describe('Minimum similarity score for fuzzy matching (0-1)'),
 });
 
 export type ComparisonSettings = z.infer<typeof ComparisonSettingsSchema>;
@@ -98,6 +101,11 @@ export const CompareCodiciSchema = z.object({
 
   /** Global comparison settings */
   settings: ComparisonSettingsSchema.optional().describe('Comparison settings'),
+
+  /** Optional prefix that valid codes must start with (e.g., "DSA", "ABC123") */
+  code_prefix: z.string().optional().describe(
+    'Prefix that valid codes must start with. Codes not starting with this prefix will be filtered out (e.g., section headers).'
+  ),
 });
 
 export type CompareCodiciInput = z.infer<typeof CompareCodiciSchema>;
@@ -121,6 +129,9 @@ export interface ComparisonEntry {
   /** Overall status of this entry */
   status: 'matched' | 'partial' | 'missing_from_folder' | 'missing_from_table';
 
+  /** Similarity score (0-1) for fuzzy matching. Higher = better match. */
+  matchScore?: number;
+
   /** Per-field comparison results */
   fields: Record<string, FieldComparisonResult>;
 
@@ -135,6 +146,14 @@ export interface ComparisonEntry {
   };
 }
 
+/** Match detail for verification */
+export interface MatchDetail {
+  tableCode: string;     // Original code from table
+  folderCode: string;    // Original code from document
+  score: number;         // Similarity score (0-1)
+  documentName?: string; // Document filename for reference
+}
+
 /** Summary statistics */
 export interface ComparisonSummary {
   totalTableEntries: number;
@@ -143,6 +162,15 @@ export interface ComparisonSummary {
   partialMatch: number;
   missingFromFolder: number;
   missingFromTable: number;
+  /** Score distribution - count of matches in each score range */
+  scoreDistribution?: {
+    exact: number;      // score = 1.0
+    high: number;       // score 0.9-0.99
+    medium: number;     // score 0.7-0.89
+    low: number;        // score < 0.7 (above threshold)
+  };
+  /** List of all matches with original codes and scores for verification */
+  matchDetails?: MatchDetail[];
 }
 
 /** Diagnostic information when queries return unexpected results */
@@ -151,10 +179,16 @@ export interface DiagnosticInfo {
   availableFolderFields?: string[];
   /** Available tables in the lista collection */
   availableTables?: string[];
+  /** Sample of normalized keys from folder metadata (for debugging mismatches) */
+  sampleFolderKeys?: string[];
+  /** Sample of normalized keys from table data (for debugging mismatches) */
+  sampleTableKeys?: string[];
   /** Warnings or suggestions */
   warnings?: string[];
   /** Suggestions for fixing issues */
   suggestions?: string[];
+  /** Number of table entries filtered out (didn't match code_prefix) */
+  filteredTableEntries?: number;
 }
 
 /** Full comparison report */
