@@ -35,12 +35,16 @@ const tools: Tool[] = [
 Elenca i campi metadata disponibili nei documenti di una collezione.
 I nomi dei campi sono CASE-SENSITIVE ("Codice" ≠ "codice").
 
+⚠️ IMPORTANTE: NON CHIEDERE GLI ID ALL'UTENTE!
+Tu conosci già i vectorId delle collezioni collegate alla chat.
+Usa direttamente gli ID che hai a disposizione nel contesto.
+
 USA QUESTO TOOL PER:
 - Scoprire quali campi metadata esistono nei documenti
 - Trovare il nome ESATTO del campo da usare in compare_codici
 
 PARAMETRO:
-- vectorId: l'ID della cartella DOCUMENTI (quella con tanti file)
+- vectorId: l'ID della cartella DOCUMENTI (usa l'ID che conosci dal contesto)
 
 ESEMPIO RISPOSTA:
 ["Codice", "Descrizione", "Data", "Revisione"]
@@ -63,23 +67,30 @@ folder_metadata.fields[].column = "Codice"  // NON "codice"`,
     description: `STEP 2 - CHIAMA PRIMA DI compare_codici PER TROVARE IL NOME TABELLA!
 
 Elenca le tabelle estratte da un PDF (lista codici / elenco elaborati).
-I nomi delle tabelle sono SEMPRE DIVERSI e vanno specificati in compare_codici.
+
+⚠️ IMPORTANTE: NON CHIEDERE GLI ID ALL'UTENTE!
+Tu conosci già i vectorId delle collezioni collegate alla chat.
+Usa direttamente gli ID che hai a disposizione nel contesto.
 
 USA QUESTO TOOL PER:
 - Scoprire quali tabelle sono state estratte dal PDF
 - Trovare il nome ESATTO della tabella e le sue colonne
 
 PARAMETRO:
-- vectorId: l'ID della cartella LISTA CODICI (quella con il PDF)
+- vectorId: l'ID della cartella LISTA CODICI (usa l'ID che conosci dal contesto)
 
 ESEMPIO RISPOSTA:
 [
   { "name": "elenco_elaborati_p1_t0", "rowCount": 109, "columns": ["codice_elaborato", "descrizione"] }
 ]
 
-POI USA IL NOME ESATTO in compare_codici:
-table_source.table_name = "elenco_elaborati_p1_t0"
-table_source.columns[].column = "codice_elaborato"`,
+🚨 CRITICO - USA ESATTAMENTE I NOMI RESTITUITI:
+- table_name = "elenco_elaborati_p1_t0"  ✅ CORRETTO
+- table_name = "Table 1"                  ❌ SBAGLIATO!
+- table_name = "Tabella 1"                ❌ SBAGLIATO!
+
+NON INVENTARE NOMI! Copia-incolla esattamente il valore "name" dalla risposta.
+I nomi delle colonne vanno copiati esattamente dalla lista "columns".`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -95,64 +106,119 @@ table_source.columns[].column = "codice_elaborato"`,
     name: 'compare_codici',
     description: `STEP 3 - USA DOPO list_document_fields E list_tables!
 
+⚠️ IMPORTANTE: NON CHIEDERE GLI ID ALL'UTENTE!
+Tu conosci già i vectorId delle collezioni collegate alla chat.
+Usa direttamente gli ID che hai a disposizione nel contesto.
+
 ⚠️ WORKFLOW OBBLIGATORIO:
 1. PRIMA chiama list_document_fields(documentsVectorId) → ottieni nomi campi ESATTI
 2. POI chiama list_tables(listaVectorId) → ottieni nome tabella e colonne ESATTE
 3. INFINE chiama compare_codici con i valori corretti
 
-COSA FA: Confronta i codici estratti dai documenti con una o più tabelle "lista codici".
+🚨🚨🚨 ERRORE COMUNE - LEGGI ATTENTAMENTE! 🚨🚨🚨
+I nomi delle tabelle NON sono "Table 1", "Table 2", "Tabella 1", ecc.!
+I nomi sono come: "elenco_elaborati_p1_t0", "elenco_elaborati_p2_t0", ecc.
+DEVI COPIARE ESATTAMENTE i nomi restituiti da list_tables!
 
-🆕 SUPPORTO MULTI-TABELLA:
-Puoi confrontare i documenti con TUTTE le tabelle in una sola chiamata!
-Usa "table_sources" (array) invece di "table_source" (singolo).
+COSA FA: Confronta i codici E le descrizioni estratti dai documenti con una o più tabelle "lista codici".
 
-⚠️ IMPORTANTE - USA code_prefix PER FILTRARE INTESTAZIONI DI SEZIONE:
+═══════════════════════════════════════════════════════════════════════════════
+📋 FUNZIONALITÀ PRINCIPALI
+═══════════════════════════════════════════════════════════════════════════════
+
+1️⃣ CONFRONTO CODICI (obbligatorio):
+   Verifica che ogni codice nella lista sia presente nei documenti.
+
+2️⃣ CONFRONTO DESCRIZIONE (opzionale ma consigliato):
+   Verifica che la descrizione/titolo del documento corrisponda a quella nella lista.
+   Usa fuzzy matching con similarity score (0-1).
+
+3️⃣ SUPPORTO MULTI-TABELLA:
+   Confronta i documenti con TUTTE le tabelle in una sola chiamata.
+   Usa "table_sources" (array) invece di "table_source" (singolo).
+
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ FILTRO INTESTAZIONI DI SEZIONE (code_prefix)
+═══════════════════════════════════════════════════════════════════════════════
+
 Le tabelle spesso contengono righe di intestazione/categoria come:
 - DOCUMENTAZIONE TECNICA, STRUTTURALE, ENERGETICA, ANTINCENDIO, ecc.
 Queste NON sono codici documento e creano falsi "missing_from_folder".
 
-SOLUZIONE: Usa il parametro "code_prefix" con il prefisso dei codici validi.
-Esempio: se i codici iniziano con "DSA" o "ABC123", usa code_prefix: "DSA" o "ABC123".
-Tutte le voci che non iniziano con quel prefisso verranno filtrate automaticamente.
+SOLUZIONE: Usa "code_prefix" con il prefisso dei codici validi.
+Esempio: code_prefix: "PES" filtra tutto ciò che non inizia con "PES".
 
-STRUTTURA DEI PARAMETRI:
-- "name" = identificativo INTERNO (usa sempre "codice", stesso valore ovunque)
-- "column" = nome REALE del campo/colonna nel database
-- "code_prefix" = prefisso che i codici validi devono avere (es: "DSA", "ABC123")
+═══════════════════════════════════════════════════════════════════════════════
+📝 TEMPLATE BASE (solo codici)
+═══════════════════════════════════════════════════════════════════════════════
 
-TEMPLATE SINGOLA TABELLA:
+ATTENZIONE: "elenco_elaborati_p1_t0" è un ESEMPIO!
+Usa i nomi REALI restituiti da list_tables!
+
 {
-  "documentsVectorId": "<id documenti>",
-  "listaVectorId": "<id lista>",
-  "code_prefix": "<PREFISSO_CODICI_VALIDI>",
+  "documentsVectorId": "<id dal contesto>",
+  "listaVectorId": "<id dal contesto>",
   "folder_metadata": {
-    "fields": [{ "name": "codice", "column": "<CAMPO_DA_LIST_DOCUMENT_FIELDS>" }]
-  },
-  "table_source": {
-    "table_name": "<TABELLA_DA_LIST_TABLES>",
-    "columns": [{ "name": "codice", "column": "<COLONNA_DA_LIST_TABLES>" }]
-  },
-  "field_mappings": [{ "name": "codice", "required": true }]
-}
-
-🆕 TEMPLATE MULTI-TABELLA (confronta con TUTTE le tabelle):
-{
-  "documentsVectorId": "<id documenti>",
-  "listaVectorId": "<id lista>",
-  "folder_metadata": {
-    "fields": [{ "name": "codice", "column": "<CAMPO_DA_LIST_DOCUMENT_FIELDS>" }]
+    "fields": [
+      { "name": "codice", "column": "<nome da list_document_fields>" }
+    ]
   },
   "table_sources": [
-    { "table_name": "elaborati_generali_e_relazioni_specialistiche", "columns": [{ "name": "codice", "column": "codice" }] },
-    { "table_name": "elaborati_descrittivi", "columns": [{ "name": "codice", "column": "codice" }] },
-    { "table_name": "elaborati_grafici", "columns": [{ "name": "codice", "column": "codice" }] },
-    { "table_name": "progetto_prevenzione_incendi", "columns": [{ "name": "codice", "column": "codice" }] },
-    { "table_name": "progetto_strutturale", "columns": [{ "name": "codice", "column": "codice" }] }
+    { "table_name": "<nome da list_tables>", "columns": [{ "name": "codice", "column": "<colonna da list_tables>" }] }
   ],
-  "field_mappings": [{ "name": "codice", "required": true }]
+  "field_mappings": [
+    { "name": "codice", "required": true }
+  ]
 }
 
-Il report includerà statistiche per-tabella (perTableStats) e ogni entry avrà sourceTable per identificare la tabella di provenienza.`,
+═══════════════════════════════════════════════════════════════════════════════
+📝 TEMPLATE CON VALIDAZIONE DESCRIZIONE (consigliato)
+═══════════════════════════════════════════════════════════════════════════════
+
+RICORDA: Tutti i nomi (tabelle e colonne) devono venire da list_tables!
+
+{
+  "documentsVectorId": "<id dal contesto>",
+  "listaVectorId": "<id dal contesto>",
+  "folder_metadata": {
+    "fields": [
+      { "name": "codice", "column": "<campo codice da list_document_fields>" },
+      { "name": "descrizione", "column": "<campo descrizione da list_document_fields>" }
+    ]
+  },
+  "table_sources": [
+    {
+      "table_name": "<NOME ESATTO da list_tables, es: elenco_elaborati_p1_t0>",
+      "columns": [
+        { "name": "codice", "column": "<colonna codice da list_tables>" },
+        { "name": "descrizione", "column": "<colonna descrizione da list_tables>" }
+      ]
+    }
+  ],
+  "field_mappings": [
+    { "name": "codice", "required": true },
+    { "name": "descrizione", "required": false }
+  ]
+}
+
+⚠️ NOTA IMPORTANTE:
+- Ogni tabella può avere colonne con nomi DIVERSI
+- La colonna "descrizione" spesso ha nomi lunghi tipo "elaborati_generali_e_relazioni_specialistiche"
+- NON inventare i nomi! Copiali ESATTAMENTE da list_tables
+
+═══════════════════════════════════════════════════════════════════════════════
+📊 OUTPUT DEL REPORT
+═══════════════════════════════════════════════════════════════════════════════
+
+Il report include:
+- summary.matched: codici trovati
+- summary.missingFromFolder: codici nella lista ma documenti non esistono
+- summary.missingFromTable: documenti non nella lista
+- summary.descriptionMismatch: codici OK ma descrizione NON corrisponde
+- summary.descriptionScoreDistribution: distribuzione similarity descrizioni
+- matchDetails[]: dettaglio di ogni match con:
+  - tableCode, folderCode, score
+  - tableDescription, folderDescription, descriptionScore, descriptionMatch`,
     inputSchema: zodToJsonSchema(CompareCodiciSchema) as { type: 'object'; properties?: Record<string, object>; required?: string[] }
   }
 ];

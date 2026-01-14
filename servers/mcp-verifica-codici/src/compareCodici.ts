@@ -475,12 +475,33 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
       const matchedFolderRow = bestMatch.row;
       const originalFolderCode = composeFolderValue(matchedFolderRow, primaryMapping.name, input.folder_metadata.fields);
 
+      // Get description values if "descrizione" field is mapped
+      const descriptionMapping = input.field_mappings.find(m => m.name === 'descrizione');
+      let tableDescription: string | undefined;
+      let folderDescription: string | undefined;
+      let descriptionScore: number | undefined;
+      let descriptionMatch: boolean | undefined;
+
+      if (descriptionMapping) {
+        tableDescription = composeTableValue(tableRow, 'descrizione', tableColumns);
+        folderDescription = composeFolderValue(matchedFolderRow, 'descrizione', input.folder_metadata.fields);
+
+        if (tableDescription && folderDescription) {
+          descriptionScore = calculateSimilarity(tableDescription, folderDescription);
+          descriptionMatch = descriptionScore >= settings.similarity_threshold;
+        }
+      }
+
       matchDetails.push({
         tableCode: originalTableCode,
         folderCode: originalFolderCode,
         score: bestMatch.score,
         documentName: matchedFolderRow.documentName,
         sourceTable: isMultiTable ? tableName : undefined,
+        tableDescription,
+        folderDescription,
+        descriptionScore,
+        descriptionMatch,
       });
 
       const fieldResults = buildFieldResults(
@@ -564,6 +585,16 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
     low: matchedEntries.filter(e => e.matchScore! < 0.7).length,
   };
 
+  // Calculate description match statistics
+  const entriesWithDescriptionScore = matchDetails.filter(m => m.descriptionScore !== undefined);
+  const descriptionMismatchCount = entriesWithDescriptionScore.filter(m => !m.descriptionMatch).length;
+  const descriptionScoreDistribution = entriesWithDescriptionScore.length > 0 ? {
+    exact: entriesWithDescriptionScore.filter(m => m.descriptionScore === 1).length,
+    high: entriesWithDescriptionScore.filter(m => m.descriptionScore! >= 0.9 && m.descriptionScore! < 1).length,
+    medium: entriesWithDescriptionScore.filter(m => m.descriptionScore! >= 0.5 && m.descriptionScore! < 0.9).length,
+    low: entriesWithDescriptionScore.filter(m => m.descriptionScore! < 0.5).length,
+  } : undefined;
+
   const summary: ComparisonSummary = {
     totalTableEntries: totalTableRows,
     totalFolderDocuments: folderRows.length,
@@ -571,8 +602,10 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
     partialMatch: entries.filter(e => e.status === 'partial').length,
     missingFromFolder: entries.filter(e => e.status === 'missing_from_folder').length,
     missingFromTable: entries.filter(e => e.status === 'missing_from_table').length,
+    descriptionMismatch: descriptionMismatchCount > 0 ? descriptionMismatchCount : undefined,
     perTableStats: isMultiTable ? Array.from(perTableStats.values()) : undefined,
     scoreDistribution,
+    descriptionScoreDistribution,
     matchDetails: matchDetails.length > 0 ? matchDetails : undefined,
   };
 
@@ -636,6 +669,7 @@ export async function compareCodici(input: CompareCodiciInput): Promise<Comparis
 
 /**
  * Builds field comparison results for all mappings.
+ * Calculates similarity score for all fields to enable description matching.
  */
 function buildFieldResults(
   mappings: FieldMapping[],
@@ -655,6 +689,11 @@ function buildFieldResults(
       ? composeFolderValue(folderRow, mapping.name, folderFields)
       : '';
 
+    // Calculate similarity score for all fields
+    const similarity = tableRow && folderRow && tableValue && folderValue
+      ? calculateSimilarity(tableValue, folderValue)
+      : 0;
+
     const match = tableRow && folderRow
       ? valuesMatch(tableValue, folderValue, settings)
       : false;
@@ -663,6 +702,7 @@ function buildFieldResults(
       tableValue,
       folderValue,
       match,
+      similarity,
     };
   }
 

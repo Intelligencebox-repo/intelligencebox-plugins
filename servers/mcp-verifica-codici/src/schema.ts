@@ -50,8 +50,8 @@ export const ComparisonSettingsSchema = z.object({
   /** Skip empty/null values when comparing (default: true) */
   skip_empty: z.boolean().default(true).describe('Skip empty values in comparison'),
 
-  /** Minimum similarity score (0-1) for fuzzy token matching (default: 0.6 = 60%) */
-  similarity_threshold: z.number().min(0).max(1).default(0.6).describe('Minimum similarity score for fuzzy matching (0-1)'),
+  /** Minimum similarity score (0-1) for fuzzy token matching (default: 0.5 = 50%) */
+  similarity_threshold: z.number().min(0).max(1).default(0.5).describe('Minimum similarity score for fuzzy matching (0-1)'),
 });
 
 export type ComparisonSettings = z.infer<typeof ComparisonSettingsSchema>;
@@ -136,6 +136,8 @@ export interface FieldComparisonResult {
   tableValue: string;
   folderValue: string;
   match: boolean;
+  /** Similarity score (0-1) for fuzzy text comparison */
+  similarity?: number;
 }
 
 /** Result for a single entry (row) comparison */
@@ -173,6 +175,14 @@ export interface MatchDetail {
   score: number;         // Similarity score (0-1)
   documentName?: string; // Document filename for reference
   sourceTable?: string;  // Name of the source table (for multi-table comparisons)
+  /** Description from table (lista codici) */
+  tableDescription?: string;
+  /** Description from document (nome_elaborato) */
+  folderDescription?: string;
+  /** Similarity score for description comparison (0-1) */
+  descriptionScore?: number;
+  /** Whether the description matches (above threshold) */
+  descriptionMatch?: boolean;
 }
 
 /** Per-table statistics for multi-table comparisons */
@@ -192,6 +202,8 @@ export interface ComparisonSummary {
   partialMatch: number;
   missingFromFolder: number;
   missingFromTable: number;
+  /** Number of entries where code matched but description didn't */
+  descriptionMismatch?: number;
   /** Per-table breakdown for multi-table comparisons */
   perTableStats?: TableStats[];
   /** Score distribution - count of matches in each score range */
@@ -200,6 +212,13 @@ export interface ComparisonSummary {
     high: number;       // score 0.9-0.99
     medium: number;     // score 0.7-0.89
     low: number;        // score < 0.7 (above threshold)
+  };
+  /** Description match distribution */
+  descriptionScoreDistribution?: {
+    exact: number;      // score = 1.0
+    high: number;       // score 0.9-0.99
+    medium: number;     // score 0.5-0.89
+    low: number;        // score < 0.5
   };
   /** List of all matches with original codes and scores for verification */
   matchDetails?: MatchDetail[];
