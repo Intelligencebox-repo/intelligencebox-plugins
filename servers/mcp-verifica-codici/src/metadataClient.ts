@@ -4,10 +4,10 @@ import type { SourceField } from './schema.js';
 // Configuration
 // ============================================================================
 
-const BOX_SERVER_URL = process.env.BOX_SERVER_URL || 'http://localhost:3001';
-const METADATA_QUERY_ENDPOINT = process.env.METADATA_QUERY_ENDPOINT || '/api/metadata/query';
-const TABLE_QUERY_ENDPOINT = process.env.TABLE_QUERY_ENDPOINT || '/api/metadata/tables/query';
-const TABLE_LIST_ENDPOINT = process.env.TABLE_LIST_ENDPOINT || '/api/metadata/tables';
+const BOX_SERVER_URL = (process.env.BOX_SERVER_URL || 'http://localhost:3001').trim().replace(/\/+$/, '');
+const METADATA_QUERY_ENDPOINT = (process.env.METADATA_QUERY_ENDPOINT || '/api/metadata/query').trim();
+const TABLE_QUERY_ENDPOINT = (process.env.TABLE_QUERY_ENDPOINT || '/api/metadata/tables/query').trim();
+const TABLE_LIST_ENDPOINT = (process.env.TABLE_LIST_ENDPOINT || '/api/metadata/tables').trim();
 const DEFAULT_ROW_LIMIT = 500;
 
 // ============================================================================
