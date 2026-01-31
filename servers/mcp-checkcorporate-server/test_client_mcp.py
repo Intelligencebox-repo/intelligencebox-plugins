@@ -64,6 +64,12 @@ def main():
     here = os.path.dirname(__file__)
     src_dir = os.path.join(here, "src")
 
+    # Stampa l'endpoint API configurato per debug
+    api_endpoint = os.environ.get("API_ENDPOINT_URL", "(non configurato)")
+    print(f"API_ENDPOINT_URL: {api_endpoint}")
+    ignore_ssl = os.environ.get("IGNORE_SSL_CERT", "0")
+    print(f"IGNORE_SSL_CERT: {ignore_ssl}")
+
     env = os.environ.copy()
     # Prepend local src/ to PYTHONPATH for the child process so it can import
     # the package while we're developing locally (editable install alternative).
@@ -148,7 +154,7 @@ def main():
             "method": "tools/call",
             "params": {
                 "name": "get-bilancio",
-                "arguments": {"societa": "ACME", "esercizio": 2024, "tipo": "Economico"},
+                "arguments": {"societa": "*all", "esercizio": 2024, "tipo": "Economico", "codiceConto": "G1211300", "descrizioneConto": "G1211300-F.DO AMM. COSTI DI COSTITUZIONE SOCIETÀ"},
             },
         }
         send_line(proc, call_req)
@@ -162,11 +168,24 @@ def main():
             "jsonrpc": "2.0",
             "id": 4,
             "method": "tools/call",
-            "params": {"name": "get-piano-dei-conti", "arguments": {"societa": "ACME"}},
+            "params": {"name": "get-piano-dei-conti", "arguments": {"societa": "*all", "ricerca": "dip"}},
         }
         send_line(proc, call_req2)
         resp = read_response(proc, timeout=10.0)
         print("get-piano-dei-conti result:")
+        print(json.dumps(resp, indent=2, ensure_ascii=False))
+
+        # --- Elenco report disponibili
+        print("Calling get-report-disponibili...")
+        call_req3 = {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "get-report-disponibili", "arguments": {"societa": "*all", "ricerca": ""}},
+        }
+        send_line(proc, call_req3)
+        resp = read_response(proc, timeout=10.0)
+        print("get-report-disponibili result:")
         print(json.dumps(resp, indent=2, ensure_ascii=False))
 
     finally:

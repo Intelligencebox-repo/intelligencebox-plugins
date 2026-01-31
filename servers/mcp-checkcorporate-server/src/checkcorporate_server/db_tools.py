@@ -1,193 +1,266 @@
 import os
-import sqlite3
+import sys
+import socket
+import ssl
 from typing import List, Dict, Optional
+import urllib.parse
+import requests
 
 
 class DbTools:
-    """Simple sqlite-based mock DB layer for checkcorporate server.
-
-    By default this class DOES NOT open a real database connection. The
-    methods `get_bilancio` and `get_piano_dei_conti` will return simulated
-    responses unless `use_db=True` is passed to the constructor. This makes it
-    safe to instantiate in environments where no DB access is available.
-
-    Additionally, the class accepts optional `client_id` and `client_secret`
-    parameters which are intended to be provided by the deployment (for
-    example via Docker secrets / environment variables). These credentials are
-    stored and can be used by the tool implementations to authenticate calls
-    or to tag/annotate simulated SQL executions for auditing.
+    """
+    Versione definitiva SENZA MOCK.
+    Chiama sempre l'API .NET.
+    Se manca API_ENDPOINT_URL o credenziali -> errore immediato.
     """
 
     def __init__(
         self,
-        db_path: str = "/data/bilancio.db",
-        use_db: bool = False,
+        api_endpoint: str | None = None,
         client_id: str | None = None,
         client_secret: str | None = None,
-        api_endpoint: str | None = None,
+        ignore_ssl: bool = False,
     ) -> None:
-        self.db_path = db_path
-        self.use_db = bool(use_db)
+
+        # Normalizziamo endpoint
+        if api_endpoint:
+            api_endpoint = api_endpoint.strip().rstrip("/")
+        self.api_endpoint = api_endpoint
+
         self.client_id = client_id
         self.client_secret = client_secret
-        self.api_endpoint = api_endpoint
-        self.conn = None
+        # Se ignore_ssl==True -> disabilitiamo la verifica dei certificati
+        self.verify = not bool(ignore_ssl)
 
-        # If use_db is requested, open sqlite and ensure schema
-        if self.use_db:
-            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            self.conn.row_factory = sqlite3.Row
-            self._ensure_schema()
+        # Validazione iniziale delle variabili ambiente
+        if not self.api_endpoint:
+            raise RuntimeError("API_ENDPOINT_URL non configurato")
 
-    def _ensure_schema(self) -> None:
-        # If we're not using a real DB, nothing to ensure
-        if not self.use_db or self.conn is None:
-            return
+        if not self.client_id:
+            raise RuntimeError("CLIENT_ID non configurato")
 
-        cur = self.conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS bilanci (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                societa TEXT NOT NULL,
-                esercizio INTEGER NOT NULL,
-                type TEXT NOT NULL,
-                account TEXT NOT NULL,
-                amount REAL NOT NULL
-            )
-            """
-        )
+        if not self.client_secret:
+            raise RuntimeError("CLIENT_SECRET non configurato")
 
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS piano_conti (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                societa TEXT NOT NULL,
-                account TEXT NOT NULL,
-                description TEXT,
-                level INTEGER DEFAULT 1
-            )
-            """
-        )
+    # =========================================================
+    #  GET BILANCIO
+    # =========================================================
+    def get_bilancio(
+        self,
+        societa: str,
+        esercizio: int,
+        tipo: str,
+        limit: Optional[int] = 100
+    ) -> List[Dict]:
 
-        # Populate with minimal mock data if empty
-        cur.execute("SELECT COUNT(*) AS c FROM bilanci")
-        if cur.fetchone()[0] == 0:
-            # Insert mock bilanci rows
-            sample = [
-                ("ACME", 2024, "Economico", "4000", 12000.0),
-                ("ACME", 2024, "Economico", "4010", 8000.0),
-                ("ACME", 2024, "Patrimoniale", "1000", 50000.0),
-                ("ACME", 2024, "Patrimoniale", "2000", 20000.0),
-            ]
-            cur.executemany(
-                "INSERT INTO bilanci (societa, esercizio, type, account, amount) VALUES (?,?,?,?,?)",
-                sample,
-            )
+        url = f"{self.api_endpoint}/api/bilancio/get-bilancio"
 
-        cur.execute("SELECT COUNT(*) AS c FROM piano_conti")
-        if cur.fetchone()[0] == 0:
-            sample_pc = [
-                ("ACME", "1000", "Cassa", 1),
-                ("ACME", "2000", "Banche", 1),
-                ("ACME", "4000", "Ricavi vendite", 2),
-                ("ACME", "4010", "Sconti attivi", 2),
-            ]
-            cur.executemany(
-                "INSERT INTO piano_conti (societa, account, description, level) VALUES (?,?,?,?)",
-                sample_pc,
-            )
+        params = {
+            "societa": societa,
+            "esercizio": esercizio,
+            "tipo": tipo,
+            "limit": limit
+        }
 
-        self.conn.commit()
+        headers = {
+            "X-Client-ID": self.client_id,
+            "X-Client-Secret": self.client_secret
+        }
 
-    def get_bilancio(self, societa: str, esercizio: int, tipo: str, limit: Optional[int] = 100) -> List[Dict]:
-        """Mock query per recuperare dati di bilancio.
-
-        Esegue una query aggregata sui conti per societa/esercizio/tipo.
-        """
-        # If not using real DB, return a simulated response
-        tipo_db = tipo.lower()
-        if tipo_db not in ("economico", "patrimoniale"):
-            raise ValueError("tipo must be 'Economico' or 'Patrimoniale'")
-
-        if not self.use_db or self.conn is None:
-            # Simulated aggregated results. We include a masked client id in the
-            # response to demonstrate that credentials were used by the tool.
-            masked = None
-            if self.client_id:
-                masked = self.client_id[:4] + "*" * max(0, len(self.client_id) - 4)
-
-            if tipo_db == "economico":
-                base = [
-                    {"account": "4000", "total": 12000.0},
-                    {"account": "4010", "total": 8000.0},
-                ][:limit]
-            else:
-                base = [
-                    {"account": "1000", "total": 50000.0},
-                    {"account": "2000", "total": 20000.0},
-                ][:limit]
-
-            # If credentials are present, add client_id_masked to each row to
-            # show the values were available to the tool (simulated usage).
-            if masked:
-                for r in base:
-                    r["client_id_masked"] = masked
-
-            # If an API endpoint is configured, add it to the simulated result
-            # so callers can verify which endpoint would be used.
-            if self.api_endpoint:
-                for r in base:
-                    r["api_endpoint"] = self.api_endpoint
-
-            return base
-
-        # Fallback to real DB behavior if enabled
-        cur = self.conn.cursor()
-        sql = (
-            "SELECT account, SUM(amount) AS total "
-            "FROM bilanci "
-            "WHERE societa = ? AND esercizio = ? AND LOWER(type) = ? "
-            "GROUP BY account "
-            "ORDER BY account LIMIT ?"
-        )
-        cur.execute(sql, (societa, esercizio, tipo_db, limit))
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
-
-    def get_piano_dei_conti(self, societa: str) -> List[Dict]:
-        """Mock query per restituire il piano dei conti di una societa."""
-        # If not using a real DB, return simulated chart of accounts
-        if not self.use_db or self.conn is None:
-            base = [
-                {"account": "1000", "description": "Cassa", "level": 1},
-                {"account": "2000", "description": "Banche", "level": 1},
-                {"account": "4000", "description": "Ricavi vendite", "level": 2},
-                {"account": "4010", "description": "Sconti attivi", "level": 2},
-            ]
-
-            # Attach masked client id if available
-            if self.client_id:
-                masked = self.client_id[:4] + "*" * max(0, len(self.client_id) - 4)
-                for r in base:
-                    r["client_id_masked"] = masked
-
-            # Include api_endpoint in the simulated chart-of-accounts output
-            if self.api_endpoint:
-                for r in base:
-                    r["api_endpoint"] = self.api_endpoint
-
-            return base
-
-        cur = self.conn.cursor()
-        sql = "SELECT account, description, level FROM piano_conti WHERE societa = ? ORDER BY account"
-        cur.execute(sql, (societa,))
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
-
-    def close(self):
+        # Log dettagliata della chiamata HTTP (stampa su stderr)
         try:
-            self.conn.close()
-        except Exception:
-            pass
+            print(f"[DbTools] HTTP verify SSL: {self.verify}", file=sys.stderr, flush=True)
+            # Proviamo a recuperare il certificato SSL del server per debug.
+            try:
+                parsed = urllib.parse.urlparse(url)
+                if parsed.scheme and parsed.scheme.lower() == "https":
+                    host = parsed.hostname
+                    port = parsed.port or 443
+                    server_hostname = host
+
+                    # Creiamo un contesto non verificante per poter ottenere il cert
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+
+                    with socket.create_connection((host, port), timeout=5) as sock:
+                        with ctx.wrap_socket(sock, server_hostname=server_hostname) as ssock:
+                            cert = ssock.getpeercert()
+                            # Estraiamo campi utili
+                            subj = cert.get("subject", [])
+                            issuer = cert.get("issuer", [])
+                            not_before = cert.get("notBefore")
+                            not_after = cert.get("notAfter")
+                            san = cert.get("subjectAltName", [])
+                            print(f"[DbTools] SSL cert for {host}:{port} subject={subj} issuer={issuer} notBefore={not_before} notAfter={not_after} SAN={san}", file=sys.stderr, flush=True)
+                else:
+                    print(f"[DbTools] URL scheme is not HTTPS (scheme={parsed.scheme}); no SSL certificate to fetch for {url}", file=sys.stderr, flush=True)
+            except Exception as e:
+                # In ogni caso vogliamo stampare l'errore ma non bloccare la chiamata
+                print(f"[DbTools] Could not fetch SSL cert for {url}: {e}", file=sys.stderr, flush=True)
+
+            masked_headers = {k: (v if k != "X-Client-Secret" else "***") for k, v in headers.items()}
+            print(f"[DbTools] GET {url} params={params} headers={masked_headers}", file=sys.stderr, flush=True)
+
+            resp = requests.get(url, params=params, headers=headers, timeout=30, verify=self.verify)
+
+            # Log risultato parziale (status + prima parte del body)
+            # Rimuoviamo caratteri non ASCII per evitare errori di codifica
+            body_preview = ""
+            if resp.text:
+                try:
+                    body_preview = resp.text[:500].replace("\n", " ").encode('ascii', errors='replace').decode('ascii')
+                except Exception:
+                    body_preview = f"<body with {len(resp.text)} chars, encoding issue>"
+            print(f"[DbTools] Response status={resp.status_code} body_preview={body_preview}", file=sys.stderr, flush=True)
+
+        except Exception as e:
+            print(f"[DbTools] Network error calling {url}: {e}", file=sys.stderr, flush=True)
+            return [{"error": "Errore di rete", "details": str(e)}]
+
+        if resp.status_code >= 400:
+            return [{
+                "error": "Errore API",
+                "status": resp.status_code,
+                "message": resp.text
+            }]
+
+        return resp.json()
+
+    # =========================================================
+    #  GET PIANO DEI CONTI
+    # =========================================================
+    def get_piano_dei_conti(self, societa: str, ricerca: str) -> List[Dict]:
+
+        url = f"{self.api_endpoint}/api/bilancio/get-piano-conti"
+
+        params = {"societa": societa, "ricerca": ricerca}
+
+        headers = {
+            "X-Client-ID": self.client_id,
+            "X-Client-Secret": self.client_secret
+        }
+
+        # Log dettagliata della chiamata HTTP (stampa su stderr)
+        try:
+            print(f"[DbTools] HTTP verify SSL: {self.verify}", file=sys.stderr, flush=True)
+            # Proviamo a recuperare il certificato SSL del server per debug.
+            try:
+                parsed = urllib.parse.urlparse(url)
+                if parsed.scheme and parsed.scheme.lower() == "https":
+                    host = parsed.hostname
+                    port = parsed.port or 443
+                    server_hostname = host
+
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+
+                    with socket.create_connection((host, port), timeout=5) as sock:
+                        with ctx.wrap_socket(sock, server_hostname=server_hostname) as ssock:
+                            cert = ssock.getpeercert()
+                            subj = cert.get("subject", [])
+                            issuer = cert.get("issuer", [])
+                            not_before = cert.get("notBefore")
+                            not_after = cert.get("notAfter")
+                            san = cert.get("subjectAltName", [])
+                            print(f"[DbTools] SSL cert for {host}:{port} subject={subj} issuer={issuer} notBefore={not_before} notAfter={not_after} SAN={san}", file=sys.stderr, flush=True)
+                else:
+                    print(f"[DbTools] URL scheme is not HTTPS (scheme={parsed.scheme}); no SSL certificate to fetch for {url}", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[DbTools] Could not fetch SSL cert for {url}: {e}", file=sys.stderr, flush=True)
+
+            masked_headers = {k: (v if k != "X-Client-Secret" else "***") for k, v in headers.items()}
+            print(f"[DbTools] GET {url} params={params} headers={masked_headers}", file=sys.stderr, flush=True)
+
+            resp = requests.get(url, params=params, headers=headers, timeout=30, verify=self.verify)
+
+            body_preview = ""
+            if resp.text:
+                try:
+                    body_preview = resp.text[:500].replace("\n", " ").encode('ascii', errors='replace').decode('ascii')
+                except Exception:
+                    body_preview = f"<body with {len(resp.text)} chars, encoding issue>"
+            print(f"[DbTools] Response status={resp.status_code} body_preview={body_preview}", file=sys.stderr, flush=True)
+
+        except Exception as e:
+            print(f"[DbTools] Network error calling {url}: {e}", file=sys.stderr, flush=True)
+            return [{"error": "Errore di rete", "details": str(e)}]
+
+        if resp.status_code >= 400:
+            return [{
+                "error": "Errore API",
+                "status": resp.status_code,
+                "message": resp.text
+            }]
+
+        return resp.json()
+
+    # =========================================================
+    #  GET REPORT DISPONIBILI
+    # =========================================================
+    def get_report_disponibili(self, societa: str, ricerca: str) -> List[Dict]:
+
+        url = f"{self.api_endpoint}/api/bilancio/get-report-disponibili"
+
+        params = {"societa": societa, "ricerca": ricerca}
+
+        headers = {
+            "X-Client-ID": self.client_id,
+            "X-Client-Secret": self.client_secret
+        }
+
+        # Log dettagliata della chiamata HTTP (stampa su stderr)
+        try:
+            print(f"[DbTools] HTTP verify SSL: {self.verify}", file=sys.stderr, flush=True)
+            # Proviamo a recuperare il certificato SSL del server per debug.
+            try:
+                parsed = urllib.parse.urlparse(url)
+                if parsed.scheme and parsed.scheme.lower() == "https":
+                    host = parsed.hostname
+                    port = parsed.port or 443
+                    server_hostname = host
+
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+
+                    with socket.create_connection((host, port), timeout=5) as sock:
+                        with ctx.wrap_socket(sock, server_hostname=server_hostname) as ssock:
+                            cert = ssock.getpeercert()
+                            subj = cert.get("subject", [])
+                            issuer = cert.get("issuer", [])
+                            not_before = cert.get("notBefore")
+                            not_after = cert.get("notAfter")
+                            san = cert.get("subjectAltName", [])
+                            print(f"[DbTools] SSL cert for {host}:{port} subject={subj} issuer={issuer} notBefore={not_before} notAfter={not_after} SAN={san}", file=sys.stderr, flush=True)
+                else:
+                    print(f"[DbTools] URL scheme is not HTTPS (scheme={parsed.scheme}); no SSL certificate to fetch for {url}", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[DbTools] Could not fetch SSL cert for {url}: {e}", file=sys.stderr, flush=True)
+
+            masked_headers = {k: (v if k != "X-Client-Secret" else "***") for k, v in headers.items()}
+            print(f"[DbTools] GET {url} params={params} headers={masked_headers}", file=sys.stderr, flush=True)
+
+            resp = requests.get(url, params=params, headers=headers, timeout=30, verify=self.verify)
+
+            body_preview = ""
+            if resp.text:
+                try:
+                    body_preview = resp.text[:500].replace("\n", " ").encode('ascii', errors='replace').decode('ascii')
+                except Exception:
+                    body_preview = f"<body with {len(resp.text)} chars, encoding issue>"
+            print(f"[DbTools] Response status={resp.status_code} body_preview={body_preview}", file=sys.stderr, flush=True)
+
+        except Exception as e:
+            print(f"[DbTools] Network error calling {url}: {e}", file=sys.stderr, flush=True)
+            return [{"error": "Errore di rete", "details": str(e)}]
+
+        if resp.status_code >= 400:
+            return [{
+                "error": "Errore API",
+                "status": resp.status_code,
+                "message": resp.text
+            }]
+
+        return resp.json()

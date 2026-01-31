@@ -4,11 +4,11 @@ from checkcorporate_server.db_tools import DbTools
 
 db = DbTools()  # default: use_db=False -> simulazione
 
-print("== piano dei conti (ACME) ==")
-print(json.dumps(db.get_piano_dei_conti("ACME"), indent=2, ensure_ascii=False))
+print("== piano dei conti (*all) ==")
+print(json.dumps(db.get_piano_dei_conti("*all"), indent=2, ensure_ascii=False))
 
-print("== bilancio Economico (ACME,2024) ==")
-print(json.dumps(db.get_bilancio("ACME", 2024, "Economico"), indent=2, ensure_ascii=False))
+print("== bilancio Economico (*all,2024) ==")
+print(json.dumps(db.get_bilancio("*all", 2024, "Economico"), indent=2, ensure_ascii=False))
 
-print("== bilancio Patrimoniale (ACME,2024) ==")
-print(json.dumps(db.get_bilancio("ACME", 2024, "Patrimoniale"), indent=2, ensure_ascii=False))
+print("== bilancio Patrimoniale (all,2024) ==")
+print(json.dumps(db.get_bilancio("*all", 2024, "Patrimoniale"), indent=2, ensure_ascii=False))
