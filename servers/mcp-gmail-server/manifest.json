@@ -10,6 +10,16 @@
   "dockerImage": "ghcr.io/intelligencebox-repo/mcp-gmail-server:latest",
   "transport": "stdio",
   "entrypoint": ["python", "-m", "gmail_server"],
+  "authType": "oauth2",
+  "oauth": {
+    "provider": "google",
+    "authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+    "tokenUrl": "https://oauth2.googleapis.com/token",
+    "scopes": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/userinfo.email",
+    "userInfoUrl": "https://www.googleapis.com/oauth2/v2/userinfo",
+    "accessType": "offline",
+    "prompt": "consent"
+  },
   "configSchema": {
     "GMAIL_CLIENT_ID": {
       "type": "string",
