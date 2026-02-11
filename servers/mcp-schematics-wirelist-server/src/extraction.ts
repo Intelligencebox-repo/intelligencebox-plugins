@@ -15,10 +15,18 @@ const VISION_MAX_RETRIES = parseInt(process.env.VISION_MAX_RETRIES || '3', 10);
 const DEFAULT_PDF_RENDER_DPI = 300;
 const DEFAULT_PDF_TILE_GRID = 2; // 2x2 tiles by default to help read small red IDs
 
-// OpenRouter configuration
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-3-flash-preview';
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+// Vision API configuration (OpenAI-compatible proxy)
+// NOTE: Non usare const per API key - dotenv potrebbe non aver ancora caricato le variabili al momento dell'import
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openrouter/google/gemini-3-flash-preview';
+const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://proxy.intelligencebox.it/v1';
+
+function ensureApiKey(): string {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) {
+    throw new Error('OPENROUTER_API_KEY non configurata. Impostare la variabile d\'ambiente OPENROUTER_API_KEY nel file .env');
+  }
+  return key;
+}
 
 function getVisionModel(): string {
   return OPENROUTER_MODEL;
@@ -260,7 +268,20 @@ function normalizeRimando(endpoint: string): string {
 }
 
 /**
- * Costruisce un grafo per ogni ID filo
+ * Rende un nodo rimando unico per foglio sorgente, evitando cortocircuiti nel grafo.
+ * "rimando 105" su foglio 108 → "rimando 105@108"
+ */
+function makeRimandoUnique(endpoint: string, foglio?: number): string {
+  if (foglio !== undefined && /^rimando\s+\d+$/i.test(endpoint)) {
+    return `${endpoint}@${foglio}`;
+  }
+  return endpoint;
+}
+
+/**
+ * Costruisce un grafo per ogni ID filo.
+ * I nodi rimando sono resi unici per foglio sorgente per evitare che rimandi
+ * su pagine diverse vengano fusi in un unico nodo (creando connessioni fantasma).
  */
 function buildWireGraph(wires: WireRecord[]): Map<string, WireGraphData> {
   const graphs = new Map<string, WireGraphData>();
@@ -275,49 +296,68 @@ function buildWireGraph(wires: WireRecord[]): Map<string, WireGraphData> {
 
     const g = graphs.get(id)!;
 
-    // Add nodes - normalize rimando to page-only for better cross-page matching
+    // Normalize rimando to page-only, then make unique per source foglio
     if (wire.from) {
-      const fromNormalized = normalizeRimando(wire.from.trim());
-      g.nodes.push({ name: fromNormalized, type: classifyEndpoint(fromNormalized), page: wire.page, foglio: wire.foglio });
+      const normalized = normalizeRimando(wire.from.trim());
+      const unique = makeRimandoUnique(normalized, wire.foglio);
+      g.nodes.push({ name: unique, type: classifyEndpoint(normalized), page: wire.page, foglio: wire.foglio });
     }
     if (wire.to) {
-      const toNormalized = normalizeRimando(wire.to.trim());
-      g.nodes.push({ name: toNormalized, type: classifyEndpoint(toNormalized), page: wire.page, foglio: wire.foglio });
+      const normalized = normalizeRimando(wire.to.trim());
+      const unique = makeRimandoUnique(normalized, wire.foglio);
+      g.nodes.push({ name: unique, type: classifyEndpoint(normalized), page: wire.page, foglio: wire.foglio });
     }
 
-    // Add edge - also normalize rimando endpoints
+    // Add edge with unique rimando names
     if (wire.from && wire.to) {
+      const fromNorm = normalizeRimando(wire.from.trim());
+      const toNorm = normalizeRimando(wire.to.trim());
       g.edges.push({
-        from: normalizeRimando(wire.from.trim()),
-        to: normalizeRimando(wire.to.trim()),
+        from: makeRimandoUnique(fromNorm, wire.foglio),
+        to: makeRimandoUnique(toNorm, wire.foglio),
         page: wire.page
       });
     }
   }
 
   // Post-process: connect complementary rimandi across fogli
-  // If foglio X has "rimando Y" and foglio Y has "rimando X" for same wire, add edge
+  // If foglio X has "rimando Y@X" and foglio Y has "rimando X@Y", add cross-page edge
   for (const [, graph] of graphs) {
-    // Collect rimando nodes with their target foglio (from rimando name) and source foglio
+    // Collect rimando nodes with their target foglio and source foglio
     const rimandoByTargetFoglio = new Map<number, { nodeName: string; sourceFoglio?: number }[]>();
 
     for (const node of graph.nodes) {
       if (node.type === 'reference') {
-        const match = node.name.match(/^rimando\s+(\d+)$/i);
+        // Match unique rimando format: "rimando 105@108" → target=105, source=108
+        const match = node.name.match(/^rimando\s+(\d+)@(\d+)$/i);
         if (match) {
           const targetFoglio = parseInt(match[1], 10);
+          const sourceFoglio = parseInt(match[2], 10);
           if (!rimandoByTargetFoglio.has(targetFoglio)) {
             rimandoByTargetFoglio.set(targetFoglio, []);
           }
           rimandoByTargetFoglio.get(targetFoglio)!.push({
             nodeName: node.name,
-            sourceFoglio: node.foglio  // Use foglio, not page
+            sourceFoglio
           });
+        } else {
+          // Fallback: rimando without @foglio (foglio was undefined)
+          const fallbackMatch = node.name.match(/^rimando\s+(\d+)$/i);
+          if (fallbackMatch) {
+            const targetFoglio = parseInt(fallbackMatch[1], 10);
+            if (!rimandoByTargetFoglio.has(targetFoglio)) {
+              rimandoByTargetFoglio.set(targetFoglio, []);
+            }
+            rimandoByTargetFoglio.get(targetFoglio)!.push({
+              nodeName: node.name,
+              sourceFoglio: node.foglio
+            });
+          }
         }
       }
     }
 
-    // Connect rimandi: if foglio X has "rimando Y" and foglio Y has "rimando X"
+    // Connect rimandi: if foglio X has "rimando Y@X" and foglio Y has "rimando X@Y"
     for (const [targetFoglio, rimandos] of rimandoByTargetFoglio) {
       for (const rimando of rimandos) {
         const sourceFoglio = rimando.sourceFoglio;
@@ -327,7 +367,6 @@ function buildWireGraph(wires: WireRecord[]): Map<string, WireGraphData> {
         const reverseRimandos = rimandoByTargetFoglio.get(sourceFoglio);
         if (reverseRimandos) {
           for (const reverseRimando of reverseRimandos) {
-            // Connect if they're on complementary fogli
             if (reverseRimando.sourceFoglio === targetFoglio) {
               graph.edges.push({
                 from: rimando.nodeName,
@@ -344,7 +383,9 @@ function buildWireGraph(wires: WireRecord[]): Map<string, WireGraphData> {
 }
 
 /**
- * BFS per trovare tutti i nodi reali raggiungibili da un nodo di partenza
+ * BFS per trovare i nodi reali DIRETTAMENTE adiacenti (connessi solo tramite rimandi intermedi).
+ * A differenza del BFS classico, si FERMA ai nodi reali senza attraversarli.
+ * Questo evita connessioni fantasma: per una catena A→B→C, trova solo A↔B e B↔C, non A↔C.
  */
 function bfsReachableRealNodes(
   adj: Map<string, Set<string>>,
@@ -360,12 +401,14 @@ function bfsReachableRealNodes(
     if (visited.has(current)) continue;
     visited.add(current);
 
-    // Se è un nodo reale (non un rimando) e non è il punto di partenza, aggiungilo ai raggiungibili
+    // Se è un nodo reale (non un rimando) e non è il punto di partenza, aggiungilo
+    // ma NON continuare ad esplorare oltre: ferma la BFS a questo nodo
     if (realNodes.has(current) && current !== start) {
       reachable.add(current);
+      continue; // Non attraversare nodi reali - trova solo adiacenti diretti
     }
 
-    // Esplora i vicini
+    // Esplora i vicini solo per nodi non-reali (rimandi) o il nodo di partenza
     const neighbors = adj.get(current);
     if (neighbors) {
       for (const neighbor of neighbors) {
@@ -517,6 +560,56 @@ const COMPONENT_COLORS: Record<ComponentType, string> = {
   motor: '#98FB98',    // Pale green
   other: '#FFFFFF'     // White
 };
+
+/**
+ * Separa un endpoint in componente e PIN.
+ * Il componente è il riferimento base (lettere+numeri, eventualmente con dash compound),
+ * il PIN è il terminale numerico finale.
+ *
+ * Es: "QM102.13" → { component: "QM102", pin: "13" }
+ *     "AP602-EN101:X1.21" → { component: "AP602-EN101", pin: "21" }
+ *     "AP601-ID101.X1:21" → { component: "AP601-ID101", pin: "21" }
+ *     "XT3.24.1" → { component: "XT3", pin: "24.1" }
+ *     "-QM102.13" → { component: "-QM102", pin: "13" }
+ *     "XT1.1102" → { component: "XT1", pin: "1102" }
+ *     "KM131.2" → { component: "KM131", pin: "2" }
+ */
+function splitComponentPin(endpoint: string): { component: string; pin: string } {
+  if (!endpoint) return { component: '', pin: '' };
+  const trimmed = endpoint.trim();
+
+  // Handle compound module addresses with X-card identifiers:
+  //   "AP602-EN101:X1.21"       → AP602-EN101, 21
+  //   "AP601-ID101.X1:21"       → AP601-ID101, 21
+  //   "AP601-OD102.DO-01/X1.11" → AP601-OD102, 11
+  // Pattern: base component + anything + X-card separator + final pin
+  const compoundMatch = trimmed.match(/^(-?[A-Za-z]+\d+(?:-[A-Za-z]+\d+)*)[.:\/].*?[.:\/]X\d+[.:]([\d.]+)$/);
+  if (compoundMatch) {
+    return { component: compoundMatch[1], pin: compoundMatch[2] };
+  }
+
+  // Simpler compound: "AP602-EN101:X1.21" (direct X-card after component)
+  const simpleCompound = trimmed.match(/^(-?[A-Za-z]+\d+(?:-[A-Za-z]+\d+)*)[:.]X\d+[:.]([\d.]+)$/);
+  if (simpleCompound) {
+    return { component: simpleCompound[1], pin: simpleCompound[2] };
+  }
+
+  // Find first '.' or ':' separator
+  const sepIdx = trimmed.search(/[.:]/);
+  if (sepIdx <= 0) return { component: trimmed, pin: '' };
+
+  const component = trimmed.slice(0, sepIdx);
+  const pin = trimmed.slice(sepIdx + 1);
+
+  // If pin contains nested component refs (vision artifact), extract just the final number
+  // e.g., "KM838.11" → "11", "DO-01/X1.11" → "11"
+  const finalNumMatch = pin.match(/[.:\/]([\d.]+)$/);
+  if (finalNumMatch && /[A-Za-z]/.test(pin)) {
+    return { component, pin: finalNumMatch[1] };
+  }
+
+  return { component, pin };
+}
 
 /**
  * Estrae il riferimento base del componente (senza pin/terminale)
@@ -949,7 +1042,15 @@ function generateHtmlGraph(graph: SchemaGraph): string {
 </html>`;
 }
 
-function normalizeWires(wires: WireRecord[]): WireRecord[] {
+/**
+ * Normalizza e risolvi i fili estratti.
+ * @param wires - Tutti i fili (panel + cross-panel). I fili del quadro target
+ *   hanno la proprietà _panel=true; quelli cross-panel no.
+ * @param hasCrossPanel - Se true, i fili includono dati cross-panel e il filtro
+ *   post-risoluzione terrà solo fili con almeno un endpoint dal quadro target.
+ */
+function normalizeWires(wires: WireRecord[], hasCrossPanel?: boolean): { wires: WireRecord[]; warnings: string[] } {
+  const normWarnings: string[] = [];
   const scored = (wire: WireRecord): number => {
     const fields: (keyof WireRecord)[] = [
       'id',
@@ -1031,6 +1132,47 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
     // Ignora fili con entrambi gli estremi solo coordinate numeriche (posizionamenti, non sigle)
     .filter(w => !(isNumericCoordinate(w.from) && isNumericCoordinate(w.to)));
 
+  // Correzione mislettura morsettiere: "XT2" → "XT12" se entrambi compaiono nei dati.
+  // La visione spesso tronca il nome leggendo solo l'ultima cifra.
+  const xtNames = new Set<string>();
+  for (const w of filtered) {
+    for (const ep of [w.from, w.to]) {
+      const m = (ep || '').match(/^-?(XT\d+)/i);
+      if (m) xtNames.add(m[1].toUpperCase());
+    }
+  }
+  const xtCorrections = new Map<string, string>();
+  for (const name of xtNames) {
+    const shortDigits = name.slice(2); // e.g., "2" from "XT2"
+    // Check if a longer XT name exists where the short number is a trailing portion
+    // and exactly one leading digit was dropped (e.g., XT2 → XT12, XT6 → XT16)
+    for (const longer of xtNames) {
+      if (longer === name) continue;
+      const longDigits = longer.slice(2); // e.g., "12" from "XT12"
+      if (longDigits.endsWith(shortDigits) && longDigits.length === shortDigits.length + 1) {
+        xtCorrections.set(name, longer);
+        log(`[normalizeWires] Correzione morsettiera: ${name} → ${longer} (probabile mislettura cifra iniziale)`);
+        break;
+      }
+    }
+  }
+  if (xtCorrections.size > 0) {
+    for (const w of filtered) {
+      for (const field of ['from', 'to'] as const) {
+        const ep = w[field] || '';
+        const m = ep.match(/^(-?)(XT\d+)(.*)/i);
+        if (m) {
+          const key = m[2].toUpperCase();
+          const replacement = xtCorrections.get(key);
+          if (replacement) {
+            w[field] = `${m[1]}${replacement}${m[3]}`;
+          }
+        }
+      }
+    }
+    normWarnings.push(`Correzione automatica morsettiere: ${[...xtCorrections.entries()].map(([k, v]) => `${k}→${v}`).join(', ')}`);
+  }
+
   // Dedup: tiles/zoom can cause repeats; keep the best-populated row
   // IMPORTANTE: NON ordinare from/to e NON includere page nella chiave
   // Questo permette di mantenere connessioni distinte per fili comuni (es. filo "24" a più componenti)
@@ -1057,6 +1199,22 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
 
   const sanitizedWires = Array.from(deduped.values());
 
+  // Costruisci set di endpoint appartenenti al quadro target (per filtro cross-panel).
+  // Usa i fili normalizzati/sanitizzati che hanno il tag _panel=true.
+  // Solo endpoint NON-rimando vanno nel set (i rimandi vengono risolti nel grafo).
+  let panelEndpoints: Set<string> | undefined;
+  if (hasCrossPanel) {
+    panelEndpoints = new Set<string>();
+    for (const w of sanitizedWires) {
+      if (!(w as any)._panel) continue;
+      const from = (w.from || '').trim().toLowerCase();
+      const to = (w.to || '').trim().toLowerCase();
+      if (from && !from.startsWith('rimando')) panelEndpoints.add(from);
+      if (to && !to.startsWith('rimando')) panelEndpoints.add(to);
+    }
+    log(`[wire-graph] Panel endpoint set: ${panelEndpoints.size} endpoint unici dal quadro target`);
+  }
+
   // ============================================================
   // Wire Graph Resolution - Traccia fili attraverso i rimandi
   // ============================================================
@@ -1076,6 +1234,19 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
     // Include TUTTI i fili nel grafo (anche quelli completi) per costruire le connessioni
     const graphs = buildWireGraph(sanitizedWires);
     const resolved = resolveWireConnections(graphs);
+
+    // Rileva rimandi non risolti (fili con rimandi che non hanno prodotto connessioni risolte)
+    const resolvedWireIds = new Set(resolved.map(w => w.id));
+    for (const wire of wiresWithRimandi) {
+      const wireId = wire.id?.trim() || '';
+      if (!resolvedWireIds.has(wireId)) {
+        const from = wire.from || '?';
+        const to = wire.to || '?';
+        const msg = `Filo "${wireId}" (da ${from} a ${to}, pagina ${wire.page ?? '?'}): rimando non risolto - connessione cross-pagina incompleta`;
+        normWarnings.push(msg);
+        log(`[wire-graph] WARN: ${msg}`);
+      }
+    }
 
     // Dedup finale: combina fili già completi con quelli risolti
     const finalDedup = new Map<string, WireRecord>();
@@ -1097,10 +1268,35 @@ function normalizeWires(wires: WireRecord[]): WireRecord[] {
 
     log(`[wire-graph] Input: ${sanitizedWires.length} fili, Completi: ${completeWires.length}, Con rimandi: ${wiresWithRimandi.length}, Risolti: ${resolved.length}, Output: ${finalDedup.size}`);
 
-    return Array.from(finalDedup.values());
+    let finalWires = Array.from(finalDedup.values());
+
+    // Filtra fili cross-panel: mantieni solo quelli con almeno un endpoint nel quadro target
+    if (panelEndpoints) {
+      const beforeCount = finalWires.length;
+      finalWires = finalWires.filter(w => {
+        const from = (w.from || '').trim().toLowerCase();
+        const to = (w.to || '').trim().toLowerCase();
+        return panelEndpoints!.has(from) || panelEndpoints!.has(to);
+      });
+      const crossPanelResolved = beforeCount - finalWires.length;
+      if (crossPanelResolved > 0) {
+        log(`[wire-graph] Filtro cross-panel: ${crossPanelResolved} fili di altri quadri rimossi, ${finalWires.length} fili del quadro target mantenuti`);
+      }
+    }
+
+    return { wires: finalWires, warnings: normWarnings };
   }
 
-  return sanitizedWires;
+  // Nessun rimando da risolvere - filtra cross-panel se necessario
+  let result = sanitizedWires;
+  if (panelEndpoints) {
+    result = sanitizedWires.filter(w => {
+      const from = (w.from || '').trim().toLowerCase();
+      const to = (w.to || '').trim().toLowerCase();
+      return panelEndpoints!.has(from) || panelEndpoints!.has(to);
+    });
+  }
+  return { wires: result, warnings: normWarnings };
 }
 
 function normalizeComponents(components: ComponentRecord[]): ComponentRecord[] {
@@ -1294,17 +1490,25 @@ STEP 2: Determina se la pagina contiene uno SCHEMA ELETTRICO da estrarre:
   • Layout fisico/disposizione quadro (planimetrie)
   • Pagine solo testo o tabelle
 
+CODIFICA COLORI nello schema:
+- BLU: nomi/sigle dei componenti (QM102, KA115E, XT1, AP601)
+- ROSSO: numeri dei fili (spesso con barra trasversale), es. 24, 1102, 2905
+- VIOLA: note e annotazioni
+- VERDE: rimandi a pagine/fogli (riferimenti incrociati)
+
 STEP 3: Se has_schema=true, estrai:
-- FILI: id (numero rosso barrato), from (componente.pin), to (componente.pin)
+- FILI: id (numero ROSSO barrato), from (componente.pin), to (componente.pin)
   - I numeri dei fili sono ROSSI e spesso BARRATI (barra trasversale)
-  - from/to sono sigle componente con pin (es. "QM376.2", "KM376.1", "-XT1.24")
-  - Se un capo è un rimando pagina, scrivi "rimando X.Y" (es. "rimando 134.8")
-- COMPONENTI: ref (sigla come QM376, KM376, XT1), description
+  - from/to sono sigle componente BLU con pin (es. "QM376.2", "KM376.1", "-XT1.24")
+  - Se un capo è un rimando pagina (VERDE), scrivi "rimando X.Y" (es. "rimando 134.8")
+- COMPONENTI: ref (sigla BLU come QM376, KM376, XT1), description
 
 IMPORTANTE:
 - Estrai TUTTI i segmenti di filo, anche quelli con rimandi su entrambi i lati
 - Se un filo si collega a PIÙ componenti, crea UNA RIGA SEPARATA per ogni connessione
 - I componenti con prefisso "-" (es. -QM376) appartengono comunque al quadro indicato in Ubicazione
+- Trasformatori amperometrici (TA): il filo di potenza PASSA ATTRAVERSO il TA ma NON è connesso elettricamente ad esso. Non creare connessioni filo-TA per il filo passante. Il TA ha i propri fili secondari separati (es. 2905)
+- Morsettiere (XT): leggi TUTTE le cifre della sigla. Nomi come XT12, XT16 sono comuni - non confondere con XT1, XT2, XT6. Verifica attentamente ogni cifra
 
 Rispondi SOLO in JSON valido:
 {
@@ -1323,7 +1527,7 @@ Rispondi SOLO in JSON valido:
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${ensureApiKey()}`,
           'HTTP-Referer': 'https://intelligencebox.ai',
           'X-Title': 'IntelligenceBox Wirelist Extractor'
         },
@@ -1725,7 +1929,12 @@ function buildTaglioFili(wires: WireRecord[]) {
 
 function buildSiglatura(wires: WireRecord[]) {
   const rows = wires.flatMap(wire => {
+    const fromSplit = splitComponentPin(wire.from || '');
+    const toSplit = splitComponentPin(wire.to || '');
+
     const head = wire.from ? [{
+      'Componente': fromSplit.component,
+      'PIN': fromSplit.pin,
       'Sigla': wire.from,
       'ID filo': wire.id || '',
       'Estremità': 'A',
@@ -1733,6 +1942,8 @@ function buildSiglatura(wires: WireRecord[]) {
     }] : [];
 
     const tail = wire.to ? [{
+      'Componente': toSplit.component,
+      'PIN': toSplit.pin,
       'Sigla': wire.to,
       'ID filo': wire.id || '',
       'Estremità': 'B',
@@ -1744,6 +1955,8 @@ function buildSiglatura(wires: WireRecord[]) {
 
   if (!rows.length) {
     rows.push({
+      'Componente': '',
+      'PIN': '',
       'Sigla': '',
       'ID filo': '',
       'Estremità': '',
@@ -1781,23 +1994,32 @@ async function buildWorkbook(params: {
     'INDICAZIONI'
   );
 
-  const wireRows = (params.wires.length ? params.wires : [{}]).map(wire => ({
-    'ID': wire.id || '',
-    'Da': wire.from || '',
-    'A': wire.to || '',
-    'Cavo': wire.cable || '',
-    'Sezione': wire.gauge || '',
-    'Colore': wire.color || '',
-    'Lunghezza (mm)': wire.length_mm ?? '',
-    'Terminale A': wire.terminal_a || '',
-    'Terminale B': wire.terminal_b || '',
-    'Pagina': wire.page ?? '',
-    'Note': wire.note || ''
-  }));
+  const wireRows = (params.wires.length ? params.wires : [{}]).map(wire => {
+    const fromSplit = splitComponentPin(wire.from || '');
+    const toSplit = splitComponentPin(wire.to || '');
+    return {
+      'ID': wire.id || '',
+      'Da': fromSplit.component,
+      'PIN Da': fromSplit.pin,
+      'DA INIZIO': fromSplit.pin ? `${fromSplit.component} | ${fromSplit.pin}` : fromSplit.component,
+      'A': toSplit.component,
+      'PIN A': toSplit.pin,
+      'A FINE': toSplit.pin ? `${toSplit.component} | ${toSplit.pin}` : toSplit.component,
+      'Cavo': wire.cable || '',
+      'Sezione': wire.gauge || '',
+      'Colore': wire.color || '',
+      'Lunghezza (mm)': wire.length_mm ?? '',
+      'Terminale A': wire.terminal_a || '',
+      'Terminale B': wire.terminal_b || '',
+      'Pagina': wire.page ?? '',
+      'Note': wire.note || ''
+    };
+  });
   XLSX.utils.book_append_sheet(
     workbook,
     XLSX.utils.json_to_sheet(wireRows, { header: [
-      'ID', 'Da', 'A', 'Cavo', 'Sezione', 'Colore',
+      'ID', 'Da', 'PIN Da', 'DA INIZIO', 'A', 'PIN A', 'A FINE',
+      'Cavo', 'Sezione', 'Colore',
       'Lunghezza (mm)', 'Terminale A', 'Terminale B', 'Pagina', 'Note'
     ] }),
     'LISTA FILI'
@@ -1932,6 +2154,10 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
 
   let wires: WireRecord[] = [];
   let components: ComponentRecord[] = [];
+  // Wires from pages that don't match panel_id but have has_schema=true.
+  // These are needed for cross-panel rimandi resolution (e.g., foglio 104 in panel "+"
+  // that contains TA/FS components referenced by rimandi on +A1 pages).
+  const crossPanelWires: WireRecord[] = [];
 
   await reportProgress(progressCtx, 22, 'Preparazione estrazione con modello AI...');
 
@@ -1997,13 +2223,6 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
       try {
         const qwenResult = await extractWithVision(imageBase64, pageNum, debugFolder);
 
-        // Filtro su ubicazione (panel_id)
-        if (input.panel_id && !pageMatchesPanelId(qwenResult.ubicazione, input.panel_id)) {
-          log(`Pagina ${pageNum}: ubicazione="${qwenResult.ubicazione}" ≠ "${input.panel_id}" - SKIP`);
-          skippedPages++;
-          return;
-        }
-
         // Filtro su tipo pagina (schema di principio)
         if (!qwenResult.has_schema) {
           log(`Pagina ${pageNum}: no schema di principio - SKIP`);
@@ -2011,14 +2230,41 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
           return;
         }
 
-        // Accumula risultati
+        const matchesPanel = !input.panel_id || pageMatchesPanelId(qwenResult.ubicazione, input.panel_id);
+
+        if (!matchesPanel) {
+          // Pagina di un altro quadro: salva SOLO fili con rimandi per la risoluzione cross-panel.
+          // Fili completamente interni ad un altro quadro non servono.
+          const relevantWires = qwenResult.wires.filter(w => {
+            const from = (w.from || '').toLowerCase();
+            const to = (w.to || '').toLowerCase();
+            return from.includes('rimando') || to.includes('rimando');
+          });
+          if (relevantWires.length > 0) {
+            crossPanelWires.push(...relevantWires);
+            log(`Pagina ${pageNum}: ubicazione="${qwenResult.ubicazione}" ≠ "${input.panel_id}" - ${relevantWires.length}/${qwenResult.wires.length} fili con rimandi salvati per cross-panel`);
+          } else {
+            log(`Pagina ${pageNum}: ubicazione="${qwenResult.ubicazione}" ≠ "${input.panel_id}" - SKIP (nessun rimando)`);
+          }
+          skippedPages++;
+          return;
+        }
+
+        // Avviso se foglio non leggibile dal cartiglio (i rimandi non potranno essere risolti)
+        if (qwenResult.foglio === undefined || qwenResult.foglio === null) {
+          const msg = `Pagina PDF ${pageNum}: impossibile leggere il numero foglio dal cartiglio. I rimandi da/verso questa pagina non saranno risolti.`;
+          warnings.push(msg);
+          log(msg);
+        }
+
+        // Accumula risultati del quadro target
         wires.push(...qwenResult.wires);
         components.push(...qwenResult.components);
         if (qwenResult.warnings.length) {
           warnings.push(...qwenResult.warnings);
         }
 
-        log(`Pagina ${pageNum}: ubicazione="${qwenResult.ubicazione}" foglio=${qwenResult.foglio || 'n/d'} - ${qwenResult.wires.length} fili, ${qwenResult.components.length} componenti`);
+        log(`Pagina ${pageNum}: ubicazione="${qwenResult.ubicazione}" foglio=${qwenResult.foglio ?? 'n/d'} - ${qwenResult.wires.length} fili, ${qwenResult.components.length} componenti`);
 
       } catch (error: any) {
         warnings.push(`Pagina ${pageNum}: errore - ${error.message}`);
@@ -2040,13 +2286,26 @@ export async function extractWirelistToExcel(input: ExtractWirelistInput): Promi
     );
 
     log(`Estrazione completata: ${wires.length} fili, ${components.length} componenti, ${skippedPages} pagine saltate`);
+    if (crossPanelWires.length > 0) {
+      log(`Cross-panel: ${crossPanelWires.length} fili da altri quadri salvati per risoluzione rimandi`);
+    }
   } else {
     warnings.push('Nessuna immagine disponibile per estrazione vision');
   }
 
   // Normalizzazioni post-process per ridurre nomi inventati/suffissi
+  // Include cross-panel wires in the graph resolution so that rimandi pointing
+  // to pages in other panels can be resolved. After resolution, the normalizeWires
+  // function uses the panelWireCount to distinguish panel wires from cross-panel ones.
   await reportProgress(progressCtx, 82, 'Normalizzazione dati estratti...');
-  wires = normalizeWires(wires);
+  // Tag panel wires for cross-panel filtering after graph resolution
+  for (const w of wires) { (w as any)._panel = true; }
+  const allWiresForResolution = [...wires, ...crossPanelWires];
+  const wireResult = normalizeWires(allWiresForResolution, crossPanelWires.length > 0);
+  wires = wireResult.wires;
+  if (wireResult.warnings.length) {
+    warnings.push(...wireResult.warnings);
+  }
   components = normalizeComponents(components);
 
   if (!wires.length && rawText) {
