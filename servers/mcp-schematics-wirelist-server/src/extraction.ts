@@ -1977,23 +1977,6 @@ async function buildWorkbook(params: {
 }): Promise<void> {
   const workbook = XLSX.utils.book_new();
 
-  const indicazioni = [
-    { Campo: 'Sorgente', Valore: params.metadata.source_file },
-    { Campo: 'Quadro', Valore: params.metadata.panel_id || 'n/d' },
-    { Campo: 'Progetto', Valore: params.metadata.project || 'n/d' },
-    { Campo: 'Note', Valore: params.metadata.note || 'n/d' },
-    { Campo: 'Pagine analizzate', Valore: params.metadata.pages_used ?? 'n/d' },
-    { Campo: 'Caratteri testo', Valore: params.metadata.text_chars ?? 'n/d' },
-    { Campo: 'Testo troncato', Valore: params.metadata.truncated_text ? 'sì' : 'no' },
-    { Campo: 'Modello', Valore: params.metadata.model || OPENROUTER_MODEL },
-    { Campo: 'Estratto il', Valore: params.metadata.extracted_at }
-  ];
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(indicazioni),
-    'INDICAZIONI'
-  );
-
   const wireRows = (params.wires.length ? params.wires : [{}]).map(wire => {
     const fromSplit = splitComponentPin(wire.from || '');
     const toSplit = splitComponentPin(wire.to || '');
