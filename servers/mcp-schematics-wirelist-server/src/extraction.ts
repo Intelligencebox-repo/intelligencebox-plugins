@@ -76,14 +76,19 @@ function getProgressWebhookUrl(): string {
   return 'http://127.0.0.1:3001/api/mcp/progress';
 }
 
-const PROGRESS_WEBHOOK_URL = getProgressWebhookUrl();
+// Lazy-resolved so dotenv.config() in index.ts has time to load .env first
+let _cachedWebhookUrl: string | null = null;
+function resolvedWebhookUrl(): string {
+  if (!_cachedWebhookUrl) {
+    _cachedWebhookUrl = getProgressWebhookUrl();
+    log(`Progress webhook URL: ${_cachedWebhookUrl}`);
+  }
+  return _cachedWebhookUrl;
+}
 
 function log(message: string): void {
   process.stderr.write(`[wirelist] ${message}\n`);
 }
-
-// Log the webhook URL at startup for debugging
-log(`Progress webhook URL: ${PROGRESS_WEBHOOK_URL}`);
 
 export interface ProgressPayload {
   invocationId: string;
@@ -96,7 +101,7 @@ export interface ProgressPayload {
 async function sendProgress(payload: ProgressPayload): Promise<void> {
   return new Promise((resolve) => {
     try {
-      const url = new URL(PROGRESS_WEBHOOK_URL);
+      const url = new URL(resolvedWebhookUrl());
       const data = JSON.stringify(payload);
 
       const options: http.RequestOptions = {

@@ -3,11 +3,14 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, Tool } from '@modelcontextprotocol/sdk/types.js';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { ExtractWirelistSchema, zodToJsonSchema } from './schema.js';
 import { extractWirelistToExcel } from './extraction.js';
 import { ZodError } from 'zod';
 
-dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 const server = new Server({
   name: 'schematics-wirelist-mcp',
@@ -21,7 +24,12 @@ const server = new Server({
 const tools: Tool[] = [
   {
     name: 'extract_wirelist',
-    description: 'Estrae lista fili e distinta componenti da schemi elettrici (PDF/immagini) e genera un Excel multi-foglio.',
+    description: `Estrae la lista fili (wirelist) e la distinta componenti da uno schema elettrico in formato PDF.
+Analizza ogni pagina del PDF con un modello vision, identifica fili, componenti, morsettiere e rimandi tra pagine, poi genera un file Excel multi-foglio (LISTA FILI, DISTINTA, SIGLATURA).
+Parametri obbligatori:
+- file_path: percorso assoluto del PDF da analizzare (usa il file allegato/caricato dall'utente)
+- panel_id: sigla del quadro elettrico (es. "+A1", "+QE1"). Se l'utente non lo specifica, usa "+A1" come default.
+Tutti gli altri parametri sono opzionali. Il file Excel viene salvato nella stessa cartella del PDF se output_excel_path non è specificato.`,
     inputSchema: zodToJsonSchema(ExtractWirelistSchema)
   }
 ];

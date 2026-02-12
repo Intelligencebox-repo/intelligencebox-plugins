@@ -131,6 +131,9 @@ export function mergeMcpWithManifest(mcp: any, manifest: ManifestShape | null) {
     features: manifest?.features ?? mcp.features,
     needsFileAccess: dockerDefaults.needsFileAccess,
 
+    // Long-running tool flag (10+ minute execution)
+    longRunning: manifest?.longRunning ?? mcp?.longRunning ?? false,
+
     // Local execution fields
     useLocal: manifest?.useLocal ?? mcp.useLocal ?? false,
     localPath: manifest?.localPath ?? mcp.localPath,
