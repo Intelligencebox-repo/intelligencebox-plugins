@@ -55,6 +55,9 @@ function getProgressWebhookUrl(): string {
     return process.env.PROGRESS_WEBHOOK_URL;
   }
 
+  const port = process.env.BOX_SERVER_PORT || '3001';
+  // Omit port suffix for standard HTTP/HTTPS ports
+  const portSuffix = (port === '80' || port === '443') ? '' : `:${port}`;
   const inDocker = isRunningInDocker();
 
   // Check if box-server is on the same Docker network (full Docker deployment)
@@ -64,16 +67,16 @@ function getProgressWebhookUrl(): string {
   if (inDocker) {
     if (boxServerOnNetwork) {
       // Full Docker: both services on same network
-      return 'http://box-server:3001/api/mcp/progress';
+      return `http://box-server${portSuffix}/api/mcp/progress`;
     } else {
       // Dev mode: MCP in Docker, box-server on host
       // Use host.docker.internal to reach host from container
-      return 'http://host.docker.internal:3001/api/mcp/progress';
+      return `http://host.docker.internal${portSuffix}/api/mcp/progress`;
     }
   }
 
   // Not in Docker: local development
-  return 'http://127.0.0.1:3001/api/mcp/progress';
+  return `http://127.0.0.1${portSuffix}/api/mcp/progress`;
 }
 
 // Lazy-resolved so dotenv.config() in index.ts has time to load .env first
