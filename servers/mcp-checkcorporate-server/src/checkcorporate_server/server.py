@@ -21,40 +21,29 @@ import sys
 
 # --- PARAMS MODELS ---
 class GetBilancioParams(BaseModel):
-    societa: str = Field(
-        ...,
-        description="Nome della società. Usa '*all' per interrogare tutte le società disponibili, oppure specifica il nome esatto (es. 'ACME SRL', 'BETA SPA')"
-    )
-    esercizio: int = Field(
-        ...,
-        description="Anno di esercizio fiscale (es. 2024, 2023). Indica l'anno del bilancio da recuperare"
-    )
-    tipo: str = Field(
-        ...,
-        description="Tipo di report da recuperare. Prima usa 'get-report-disponibili' per vedere i report disponibili. Esempi comuni: 'E1-Report Economico', 'P1-Report Patrimoniale', 'Economico', 'Patrimoniale'"
-    )
+    societa: str = Field(..., description="La società (es. 'ACME')")
+    esercizio: int = Field(..., description="L'esercizio (anno), es. 2024")
+    tipo: str = Field(..., description="Tipo di report: scegliere tra quelli disponibili. ad esempio \"E1-Report Economico\" \"P1 Report Patrimoniale\" ")
+
+
+class GetBilancioPerContoParams(BaseModel):
+    societa: str = Field(..., description="La società (es. 'ACME')")
+    esercizio: int = Field(..., description="L'esercizio (anno), es. 2024")
+    tipo: str = Field(..., description="Tipo di report: scegliere tra quelli disponibili. ad esempio \"E1-Report Economico\" \"P1 Report Patrimoniale\" ")
 
 
 class GetPianoParams(BaseModel):
-    societa: str = Field(
-        ...,
-        description="Nome della società. Usa '*all' per interrogare tutte le società, oppure specifica il nome esatto (es. 'ACME SRL')"
-    )
-    ricerca: str = Field(
-        ...,
-        description="Filtro di ricerca testuale per codice o descrizione conto. Usa stringa vuota '' per ottenere tutti i conti. Esempi: 'dip' (dipendenti), 'amm' (ammortamenti), 'cassa', 'banca'"
-    )
+    societa: str = Field(..., description="La società per cui restituire il piano dei conti")
+    ricerca: str = Field(..., description="Filtro di ricerca opzionale (può essere stringa vuota)")
+
+
+class GetSocietaParams(BaseModel):
+    pass  # Nessun parametro richiesto: restituisce le società accessibili dall'utente
 
 
 class GetReportDisponibiliParams(BaseModel):
-    societa: str = Field(
-        ...,
-        description="Nome della società. Usa '*all' per vedere i report di tutte le società, oppure specifica il nome esatto"
-    )
-    ricerca: str = Field(
-        ...,
-        description="Filtro di ricerca per nome report. Usa stringa vuota '' per elencare tutti i report disponibili. Esempi: 'economico', 'patrimoniale', 'E1', 'P1'"
-    )
+    societa: str = Field(..., description="La società per cui elencare i report disponibili")
+    ricerca: str = Field(..., description="Filtro di ricerca opzionale (può essere stringa vuota)")
 
 
 def create_checkcorporate_server() -> Server:
@@ -80,21 +69,11 @@ def create_checkcorporate_server() -> Server:
         # Debug: log that list_tools was invoked
         print("[checkcorporate_server] list_tools called", file=sys.stderr, flush=True)
         return [
-            Tool(
-                name="get-bilancio",
-                description="Recupera i dati di bilancio aggregati per una società e anno fiscale. Richiede: societa (usa '*all' per tutte), esercizio (anno), tipo (prima usa get-report-disponibili per vedere i tipi). Esempio: societa='*all', esercizio=2024, tipo='E1-Report Economico'",
-                inputSchema=GetBilancioParams.model_json_schema()
-            ),
-            Tool(
-                name="get-piano-dei-conti",
-                description="Recupera il piano dei conti (elenco codici e descrizioni conti contabili). Utile per trovare i codici conto da usare nelle analisi. Usa societa='*all' per tutte le società, ricerca='' per tutti i conti o un filtro testuale (es. 'dip', 'amm', 'cassa')",
-                inputSchema=GetPianoParams.model_json_schema()
-            ),
-            Tool(
-                name="get-report-disponibili",
-                description="Elenca i tipi di report disponibili per il bilancio. USA QUESTO TOOL PRIMA di get-bilancio per conoscere i valori validi del parametro 'tipo'. Usa societa='*all' per tutte, ricerca='' per tutti i report",
-                inputSchema=GetReportDisponibiliParams.model_json_schema()
-            ),
+            Tool(name="get-bilancio", description="Recupera il bilancio economico o patrimoniale di una società. E' il tool di default corretto per ottenere un bilancio.", inputSchema=GetBilancioParams.model_json_schema()),
+            Tool(name="get-bilancio-per-conto", description="Recupera il bilancio dettagliato per conto contabile", inputSchema=GetBilancioPerContoParams.model_json_schema()),
+            Tool(name="get-piano-dei-conti", description="Recupera il piano dei conti per una società", inputSchema=GetPianoParams.model_json_schema()),
+            Tool(name="get-report-disponibili", description="Elenca i report disponibili per il parametro 'tipo'", inputSchema=GetReportDisponibiliParams.model_json_schema()),
+            Tool(name="get-societa", description="Restituisce l'elenco delle società alle quali l'utente può accedere", inputSchema=GetSocietaParams.model_json_schema()),
         ]
 
     @server.call_tool()
@@ -116,6 +95,18 @@ def create_checkcorporate_server() -> Server:
                     print(f"[checkcorporate_server] API result for get-bilancio: {result_sanitized}", file=sys.stderr, flush=True)
                 except Exception:
                     print("[checkcorporate_server] Failed to print API result for get-bilancio", file=sys.stderr, flush=True)
+
+            elif name == "get-bilancio-per-conto":
+                args = GetBilancioPerContoParams(**arguments)
+                result = await asyncio.to_thread(db.get_bilancio_per_conto, args.societa, args.esercizio, args.tipo)
+                try:
+                    result_str = str(result)
+                    if len(result_str) > 1000:
+                        result_str = result_str[:1000] + "...[truncated]"
+                    result_sanitized = result_str.encode('ascii', errors='replace').decode('ascii')
+                    print(f"[checkcorporate_server] API result for get-bilancio-per-conto: {result_sanitized}", file=sys.stderr, flush=True)
+                except Exception:
+                    print("[checkcorporate_server] Failed to print API result for get-bilancio-per-conto", file=sys.stderr, flush=True)
 
             elif name == "get-piano-dei-conti":
                 args = GetPianoParams(**arguments)
@@ -142,6 +133,17 @@ def create_checkcorporate_server() -> Server:
                     print(f"[checkcorporate_server] API result for get-report-disponibili: {result_sanitized}", file=sys.stderr, flush=True)
                 except Exception:
                     print("[checkcorporate_server] Failed to print API result for get-report-disponibili", file=sys.stderr, flush=True)
+
+            elif name == "get-societa":
+                result = await asyncio.to_thread(db.get_societa)
+                try:
+                    result_str = str(result)
+                    if len(result_str) > 1000:
+                        result_str = result_str[:1000] + "...[truncated]"
+                    result_sanitized = result_str.encode('ascii', errors='replace').decode('ascii')
+                    print(f"[checkcorporate_server] API result for get-societa: {result_sanitized}", file=sys.stderr, flush=True)
+                except Exception:
+                    print("[checkcorporate_server] Failed to print API result for get-societa", file=sys.stderr, flush=True)
 
             else:
                 raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Tool '{name}' non definito."))
